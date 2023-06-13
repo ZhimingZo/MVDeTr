@@ -191,7 +191,7 @@ class MVDeTr(nn.Module):
 
         # world feat
         H, W = self.Rworld_shape
-        world_feat = kornia.warp_perspective(imgs_feat, proj_mats.to(imgs.device),
+        world_feat = kornia.geometry.warp_perspective(imgs_feat, proj_mats.to(imgs.device),
                                              self.Rworld_shape, align_corners=False).view(B, N, C, H, W)
         if visualize:
             for cam in range(N):

@@ -49,9 +49,9 @@ def main(args):
 
     # dataset
     if 'wildtrack' in args.dataset:
-        base = Wildtrack(os.path.expanduser('~/Data/Wildtrack'))
+        base = Wildtrack(os.path.expanduser('../Data/Wildtrack'))
     elif 'multiviewx' in args.dataset:
-        base = MultiviewX(os.path.expanduser('~/Data/MultiviewX'))
+        base = MultiviewX(os.path.expanduser('../Data/MultiviewX'))
     else:
         raise Exception('must choose from [wildtrack, multiviewx]')
     train_set = frameDataset(base, train=True, world_reduce=args.world_reduce,
@@ -88,7 +88,8 @@ def main(args):
                 shutil.copyfile(script, dst_file)
         sys.stdout = Logger(os.path.join(logdir, 'log.txt'), )
     else:
-        logdir = f'logs/{args.dataset}/{args.resume}'
+        logdir = f'logs_pretrained/{args.dataset}/{args.resume}'
+        #logdir = f'{args.resume}'
     print(logdir)
     print('Settings:')
     print(vars(args))
@@ -141,7 +142,8 @@ def main(args):
             draw_curve(os.path.join(logdir, 'learning_curve.jpg'), x_epoch, train_loss_s, test_loss_s, test_moda_s)
             torch.save(model.state_dict(), os.path.join(logdir, 'MultiviewDetector.pth'))
     else:
-        model.load_state_dict(torch.load(f'logs/{args.dataset}/{args.resume}/MultiviewDetector.pth'))
+        model.load_state_dict(torch.load(f'logs_pretrained/{args.dataset}/{args.resume}/MultiviewDetector.pth'))
+        #model.load_state_dict(torch.load(logdir))
         model.eval()
     print('Test loaded model...')
     trainer.test(None, test_loader, res_fpath, visualize=True)

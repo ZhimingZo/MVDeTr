@@ -77,7 +77,7 @@ class frameDataset(VisionDataset):
 
         self.world_from_img, self.img_from_world = self.get_world_imgs_trans()
         world_masks = torch.ones([self.num_cam, 1] + self.worldgrid_shape)
-        self.imgs_region = kornia.warp_perspective(world_masks, self.img_from_world, self.img_shape, 'nearest',
+        self.imgs_region = kornia.geometry.warp_perspective(world_masks, self.img_from_world, self.img_shape, 'nearest',
                                                    align_corners=False)
 
         self.img_fpaths = self.base.get_image_fpaths(frame_range)
