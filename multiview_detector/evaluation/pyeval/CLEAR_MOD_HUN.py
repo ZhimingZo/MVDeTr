@@ -27,14 +27,24 @@ def CLEAR_MOD_HUN(gt, det):
     [4]	MODP          - N-MODP
     """
     td = 50 / 2.5  # distance threshold
+    #print(gt, gt.shape) 952 4
+    # det.shape (942. 4)
+    #print(gt.shape, det.shape)
+    #print(gt,det)
+    #exit()
+    F = int(max(gt[:, 0])) + 1 # 40
+    N = int(max(det[:, 1])) + 1 # 33
+    Fgt = int(max(gt[:, 0])) + 1 # 40
+    Ngt = int(max(gt[:, 1])) + 1 # 32
 
-    F = int(max(gt[:, 0])) + 1
-    N = int(max(det[:, 1])) + 1
-    Fgt = int(max(gt[:, 0])) + 1
-    Ngt = int(max(gt[:, 1])) + 1
-
+    #print(det, det.shape)
+    #print(det[:, 1], det[:, 1].shape) 
+    #print(F, N, Fgt, Ngt)
+    #exit()
     M = np.zeros((F, Ngt))
-
+    #print(M.shape) # 40 X 32
+    #print(M)
+    #exit()
     c = np.zeros((1, F))
     fp = np.zeros((1, F))
     m = np.zeros((1, F))
@@ -43,7 +53,9 @@ def CLEAR_MOD_HUN(gt, det):
     d = np.zeros((F, Ngt))
     distances = np.inf * np.ones((F, Ngt))
 
+   
     for t in range(1, F + 1):
+        #print(t)
         GTsInFrames = np.where(gt[:, 0] == t - 1)
         DetsInFrames = np.where(det[:, 0] == t - 1)
         GTsInFrame = GTsInFrames[0]
@@ -75,7 +87,7 @@ def CLEAR_MOD_HUN(gt, det):
                 for mmm in range(1, len(u) + 1):
                     M[t - 1, u[mmm - 1]] = v[mmm - 1] + 1
         curdetected, = np.where(M[t - 1, :])
-
+        
         c[0][t - 1] = curdetected.shape[0]
         for ct in curdetected:
             eid = M[t - 1, ct] - 1
@@ -87,9 +99,29 @@ def CLEAR_MOD_HUN(gt, det):
             stY = det[DetsInFrame[0][int(eid)], 3]
 
             distances[t - 1, ct] = getDistance(gtX, gtY, stX, stY)
+        
         fp[0][t - 1] = Nt - c[0][t - 1]
         m[0][t - 1] = g[0][t - 1] - c[0][t - 1]
-
+        
+    #print(np.argmax(m), np.max(m))
+    #print(np.argmax(fp), np.max(fp))
+    #test = fp+m 
+    #print(np.sort(np.add(m, fp)))
+    #print(np.argsort(np.add(m, fp))) 
+    #exit()
+    #print(np.argmax(np.add(m, fp)), m[:, 31], fp[:, 31])
+    #[[0. 0. 0. 0. 0. 0. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 2. 2. 2. 2. 2. 2. 2.
+     #    2. 2. 2. 3. 3. 3. 3. 3. 3. 3. 3. 3. 4. 4. 4. 6.]]
+    #[[14 38 20 21 17 18  6  7  8  4 10 11 12 13  3 27 30 26 24  0 35 28  9  5
+    #     2 16 29 34 32 36 19 23 22 15  1 39 33 37 25 31]]
+    #print(np.argmax(fp), np.argmax(m))
+    #print(c.shape, fp.shape, m.shape, g.shape)    
+    #print(np.sum(c), np.sum(fp), np.sum(m), np.sum(g))
+    # c: true positive 
+    # fp: false positive
+    # m: false negative 
+    # g: total sample 
+    
     MODP = sum(1 - distances[distances < td] / td) / np.sum(c) * 100 if sum(
         1 - distances[distances < td] / td) / np.sum(c) * 100 > 0 else 0
     MODA = (1 - ((np.sum(m) + np.sum(fp)) / np.sum(g))) * 100 if (1 - (

@@ -48,9 +48,12 @@ def evaluateDetection_py(res_fpath, gt_fpath, dataset_name):
     #         start = 360
     #         steps = 1
     #         frames = 399
-
+    
     gtRaw = np.loadtxt(gt_fpath)
+    
     detRaw = np.loadtxt(res_fpath)
+    
+    
     frames = np.unique(detRaw[:, 0]) if detRaw.size else np.zeros(0)
     frame_ctr = 0
     gt_flag = True
@@ -61,17 +64,65 @@ def evaluateDetection_py(res_fpath, gt_fpath, dataset_name):
     if detRaw is None or detRaw.shape[0] == 0:
         MODP, MODA, recall, precision = 0, 0, 0, 0
         return MODP, MODA, recall, precision
-
+    
+    
     for t in frames:
+        '''
+        if t == 1950:  # frame 31
+            idxs = np.where(gtRaw[:, 0] == t)
+            idx = idxs[0]
+            idx_len = len(idx)
+            print(np.array([j for j in gtRaw[idx, 1]]))
+            print(np.array([k for k in gtRaw[idx, 2]]))
+            
+            idxs = np.where(detRaw[:, 0] == t)
+            idx = idxs[0]
+            idx_len = len(idx)
+
+            print(np.array([j for j in detRaw[idx, 1]]))
+            print(np.array([k for k in detRaw[idx, 2]]))
+            #exit()
+        '''
+        '''
+        if t == 1800+24*5:  # frame 25
+            idxs = np.where(gtRaw[:, 0] == t)
+            idx = idxs[0]
+            idx_len = len(idx)
+            print(repr(np.array([j for j in gtRaw[idx, 1]], dtype=np.int64)))
+            print(repr(np.array([k for k in gtRaw[idx, 2]], dtype=np.int64)))
+            
+            idxs = np.where(detRaw[:, 0] == t)
+            idx = idxs[0]
+            idx_len = len(idx)
+
+            print(repr(np.array([j for j in detRaw[idx, 1]], dtype=np.int64)))
+            print(repr(np.array([k for k in detRaw[idx, 2]], dtype=np.int64)))
+            exit()
+        '''
+        #if t == 1800+36*5:  # frame 37
+        #    print(np.array([j for j in gtRaw[idx, 1]]))
+        #    print(np.array([k for k in gtRaw[idx, 2]]))
+        #    print(np.array([j for j in detRaw[idx, 1]]))
+        #    print(np.array([k for k in detRaw[idx, 2]]))
+        #    exit()
+        #if t == 1800+32*5:  # frame 33
+        #    print(np.array([j for j in gtRaw[idx, 1]]))
+        #    print(np.array([k for k in gtRaw[idx, 2]]))
+        #    print(np.array([j for j in detRaw[idx, 1]]))
+        #    print(np.array([k for k in detRaw[idx, 2]]))
+        #    exit()
+        #print(t)
         idxs = np.where(gtRaw[:, 0] == t)
         idx = idxs[0]
         idx_len = len(idx)
         tmp_arr = np.zeros(shape=(idx_len, 4))
+        
         tmp_arr[:, 0] = np.array([frame_ctr for n in range(idx_len)])
         tmp_arr[:, 1] = np.array([i for i in range(idx_len)])
         tmp_arr[:, 2] = np.array([j for j in gtRaw[idx, 1]])
         tmp_arr[:, 3] = np.array([k for k in gtRaw[idx, 2]])
-
+        #print(tmp_arr) N x 4
+        #exit()
         if gt_flag:
             gtAllMatrix = tmp_arr
             gt_flag = False
@@ -91,7 +142,9 @@ def evaluateDetection_py(res_fpath, gt_fpath, dataset_name):
             det_flag = False
         else:
             detAllMatrix = np.concatenate((detAllMatrix, tmp_arr), axis=0)
+        
         frame_ctr += 1
+    #print(gtAllMatrix.shape, gtAllMatrix.shape) # (952, 4) for gt and (942, 4) for detection
     recall, precision, MODA, MODP = CLEAR_MOD_HUN(gtAllMatrix, detAllMatrix)
     return recall, precision, MODA, MODP
 

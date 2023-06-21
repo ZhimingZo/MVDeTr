@@ -233,6 +233,10 @@ class frameDataset(VisionDataset):
         world_pt_s, world_pid_s = self.world_gt[frame]
         world_gt = get_gt(self.Rworld_shape, world_pt_s[:, 0], world_pt_s[:, 1], v_s=world_pid_s,
                           reduce=self.world_reduce, top_k=self.top_k, kernel_size=self.world_kernel_size)
+        
+        print(imgs_gt.keys(), affine_mats.shape, frame)
+        print(imgs.shape, world_gt.keys())
+        exit()
         return imgs, world_gt, imgs_gt, affine_mats, frame
 
     def __len__(self):

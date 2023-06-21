@@ -19,7 +19,8 @@ from multiview_detector.utils.logger import Logger
 from multiview_detector.utils.draw_curve import draw_curve
 from multiview_detector.utils.str2bool import str2bool
 from multiview_detector.trainer import PerspectiveTrainer
-
+import warnings 
+warnings.filterwarnings("ignore")
 
 def main(args):
     # check if in debug mode
@@ -88,7 +89,8 @@ def main(args):
                 shutil.copyfile(script, dst_file)
         sys.stdout = Logger(os.path.join(logdir, 'log.txt'), )
     else:
-        logdir = f'logs_pretrained/{args.dataset}/{args.resume}'
+        #logdir = f'logs_pretrained/{args.dataset}/{args.resume}'
+        logdir = f'logs/{args.dataset}/{args.resume}'
         #logdir = f'{args.resume}'
     print(logdir)
     print('Settings:')
@@ -142,7 +144,8 @@ def main(args):
             draw_curve(os.path.join(logdir, 'learning_curve.jpg'), x_epoch, train_loss_s, test_loss_s, test_moda_s)
             torch.save(model.state_dict(), os.path.join(logdir, 'MultiviewDetector.pth'))
     else:
-        model.load_state_dict(torch.load(f'logs_pretrained/{args.dataset}/{args.resume}/MultiviewDetector.pth'))
+        #model.load_state_dict(torch.load(f'logs_pretrained/{args.dataset}/{args.resume}/MultiviewDetector.pth'))
+        model.load_state_dict(torch.load(f'logs/{args.dataset}/{args.resume}/MultiviewDetector.pth'))
         #model.load_state_dict(torch.load(logdir))
         model.eval()
     print('Test loaded model...')

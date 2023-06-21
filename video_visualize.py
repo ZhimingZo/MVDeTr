@@ -22,10 +22,10 @@ def _traget_transform(target, kernel):
 def test(dataset_name='multiviewx'):
     if dataset_name == 'multiviewx':
         result_fpath = '/home/houyz/Code/MVDeTr/logs/multiviewx/augFCS_deform_trans_lr0.001_baseR0.1_neck128_out64_alpha1.0_id0_drop0.5_dropcam0.0_worldRK4_10_imgRK12_10_2021-04-09_22-39-33/test.txt'
-        dataset = frameDataset(MultiviewX(os.path.expanduser('~/Data/MultiviewX')), False, )
+        dataset = frameDataset(MultiviewX(os.path.expanduser('../Data/MultiviewX')), False, )
     elif dataset_name == 'wildtrack':
         result_fpath = '/home/houyz/Code/MVDeTr/logs/wildtrack/augFCS_deform_trans_lr0.0005_baseR1_neck128_out64_alpha1.0_id0_drop0.0_dropcam0.0_worldRK4_10_imgRK12_10_2021-04-09_21-39-53/test.txt'
-        dataset = frameDataset(Wildtrack(os.path.expanduser('~/Data/Wildtrack')), False, )
+        dataset = frameDataset(Wildtrack(os.path.expanduser('../Data/Wildtrack')), False, )
     else:
         raise Exception('must choose from [wildtrack, multiviewx]')
     grid_size = list(map(lambda x: x * 3, dataset.Rworld_shape))
