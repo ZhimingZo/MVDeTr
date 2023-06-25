@@ -2,31 +2,35 @@ from torch.utils.data import Dataset
 from torchvision import transforms as T
 import torch
 import os
-from os import path as osp
 import json
 import numpy as np 
 import cv2
 import xml.etree.ElementTree as ET 
 from PIL import Image 
 
+
+
+
+
 class PedestrianDataset(Dataset): 
 
-    def __init__(self, root, num_cam, num_frame, img_shape, world_grid_shape, img_reduce, 
-                 grid_reduce, transform, train_ratio, reID, intrinsic_camera_matrix_filenames, 
-                 extrinsic_camera_matrix_filenames, is_train, force_download): 
+    def __init__(self, args, root, org_img_shape, world_grid_shape,  
+                transform, intrinsic_camera_matrix_filenames, 
+                 extrinsic_camera_matrix_filenames, is_train): 
         super().__init__()
+       
         self.intrinsic_camera_matrix_filenames = intrinsic_camera_matrix_filenames
         self.extrinsic_camera_matrix_filenames = extrinsic_camera_matrix_filenames
 
-        self.reID, self.grid_reduce, self.img_reduce = reID, grid_reduce, img_reduce
-        self.root, self.num_cam, self.num_frame = root, num_cam, num_frame
-        self.train_ratio = train_ratio
-        self.img_shape, self.world_grid_shape = img_shape, world_grid_shape  # H,W; N_row,N_col
+        self.reID, self.grid_reduce, self.img_reduce = args.reID, args.world_grid_reduce, args.img_reduce
+        self.root, self.num_cam, self.num_frame = root, args.num_cams, args.num_frames
+        self.train_ratio = args.train_ratio
+        self.img_shape, self.world_grid_shape = org_img_shape, world_grid_shape  # H,W; N_row,N_col
         self.reducedgrid_shape = list(map(lambda x: int(x / self.grid_reduce), self.world_grid_shape))
         self.indexing = 'ij'
-        #normalize = torchvision.transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
         self.transform =  transform
         self.is_train = is_train
+        self.reID = args.reID
         self.ID = {}
         
         if self.is_train:
@@ -115,14 +119,26 @@ class PedestrianDataset(Dataset):
                 img = self.transform(img)
             imgs.append(img)
         imgs =  torch.stack(imgs) # shape torch.Size([7, 3, 1080, 1920])
-        map_gt = torch.from_numpy(self.map_gt[frame])
+        boxes = torch.from_numpy(self.map_gt[frame]).float()
+        #   normalize 
+        boxes[:, 0] = boxes[:, 0] / self.world_grid_shape[1]
+        boxes[:, 1] = boxes[:, 1] / self.world_grid_shape[0]
+
+
+        labels = torch.ones(boxes.shape[0], dtype=torch.long)
         if self.reID:
             ID = self.ID[frame]
         worldgrid2imgcoord_matrices = self.get_worldgrid2imagecoord_matrices(self.intrinsic_matrices,
                                                                              self.extrinsic_matrices,
                                                                              self.worldgrid2worldcoord_mat)
         worldgrid2imgcoord_matrices = torch.stack(worldgrid2imgcoord_matrices, dim=0)
-        return imgs, worldgrid2imgcoord_matrices, frame, map_gt, 
+
+        gt = {
+            'boxes': boxes,
+            'labels': labels,
+        } 
+
+        return imgs, worldgrid2imgcoord_matrices, gt, frame 
 
     def __len__(self):
         return len(self.map_gt.keys())
@@ -172,6 +188,48 @@ def get_worldcoord_from_worldgrid(worldgrid):
     coord_x = -300 + 2.5 * grid_x
     coord_y = -900 + 2.5 * grid_y
     return np.array([coord_x, coord_y])
+
+
+def build_dataset(isTrain, args):
+    transform = T.Compose([
+        T.ToTensor(),
+        T.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),]
+    )
+    if 'Wildtrack' in args.dataset:
+        dataset_root=os.path.join(args.root, "Wildtrack/")
+         
+        
+        intrinsic_camera_matrix_filenames =['intr_CVLab1.xml', 'intr_CVLab2.xml', 'intr_CVLab3.xml', 'intr_CVLab4.xml',
+                                     'intr_IDIAP1.xml', 'intr_IDIAP2.xml', 'intr_IDIAP3.xml']
+        extrinsic_camera_matrix_filenames = ['extr_CVLab1.xml', 'extr_CVLab2.xml', 'extr_CVLab3.xml', 'extr_CVLab4.xml',
+                                     'extr_IDIAP1.xml', 'extr_IDIAP2.xml', 'extr_IDIAP3.xml']
+        if isTrain: 
+            train_set = PedestrianDataset(args=args, root=dataset_root, org_img_shape=[1080, 1920], world_grid_shape=[480, 1440], transform=transform, intrinsic_camera_matrix_filenames=intrinsic_camera_matrix_filenames, 
+                 extrinsic_camera_matrix_filenames=extrinsic_camera_matrix_filenames, is_train=True)
+            return train_set
+        else: 
+            test_set = PedestrianDataset(args=args, root=dataset_root, org_img_shape=[1080, 1920], world_grid_shape=[480, 1440], transform=transform, intrinsic_camera_matrix_filenames=intrinsic_camera_matrix_filenames, 
+                 extrinsic_camera_matrix_filenames=extrinsic_camera_matrix_filenames, is_train=False)
+            return test_set
+    elif 'MultiviewX' in args.dataset:
+        dataset_root =os.path.join(args.root, "MultiviewX/")
+        intrinsic_camera_matrix_filenames = ['intr_Camera1.xml', 'intr_Camera2.xml', 'intr_Camera3.xml', 'intr_Camera4.xml',
+                                     'intr_Camera5.xml', 'intr_Camera6.xml']
+        extrinsic_camera_matrix_filenames = ['extr_Camera1.xml', 'extr_Camera2.xml', 'extr_Camera3.xml', 'extr_Camera4.xml',
+                                     'extr_Camera5.xml', 'extr_Camera6.xml']
+        if isTrain: 
+            train_set = PedestrianDataset(args=args, root=dataset_root, org_img_shape=[1080, 1920], world_grid_shape=[640, 1000], transform=transform, intrinsic_camera_matrix_filenames=intrinsic_camera_matrix_filenames, 
+                 extrinsic_camera_matrix_filenames=extrinsic_camera_matrix_filenames, is_train=True)
+            return train_set
+        else: 
+            test_set = PedestrianDataset(args=args, root=dataset_root, org_img_shape=[1080, 1920], world_grid_shape=[640, 1000], transform=transform, intrinsic_camera_matrix_filenames=intrinsic_camera_matrix_filenames, 
+                 extrinsic_camera_matrix_filenames=extrinsic_camera_matrix_filenames, is_train=False)
+            return test_set
+    else: 
+        raise Exception('must choose from [Wildtrack, MultiviewX]')
+
+
+
 
 
 '''
