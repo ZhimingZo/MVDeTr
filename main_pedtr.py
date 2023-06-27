@@ -139,9 +139,9 @@ if __name__ == '__main__':
     parser.add_argument('--id_ratio', type=float, default=0)
     parser.add_argument('-j', '--num_workers', type=int, default=4)
     parser.add_argument('--dropcam', type=float, default=0.0)
-    parser.add_argument('--epochs', type=int, default=10, help='number of epochs to train')
-    parser.add_argument('--lr', type=float, default=1e-4, help='learning rate')
-    #parser.add_argument('--lr', type=float, default=1e-5, help='learning rate')
+    parser.add_argument('--epochs', type=int, default=24, help='number of epochs to train')
+    #parser.add_argument('--lr', type=float, default=1e-4, help='learning rate')
+    parser.add_argument('--lr', type=float, default=2e-4, help='learning rate')
     parser.add_argument('--base_lr_ratio', type=float, default=0.1)
     parser.add_argument('--weight_decay', type=float, default=1e-4)
     parser.add_argument('--resume', type=str, default=None)
@@ -161,8 +161,8 @@ if __name__ == '__main__':
     parser.add_argument('-b', '--batch_size', type=int, default=1, help='input batch size for training')
     parser.add_argument('--world_grid_reduce', type=int, default=1)
     parser.add_argument('--img_reduce', type=int, default=1)
-    parser.add_argument('--num_cams', type=int, default=7)
-    parser.add_argument('--num_frames', type=int, default=2000)
+    parser.add_argument('--num_cams', type=int, default=7)   # 6 for MultiviewX
+    parser.add_argument('--num_frames', type=int, default=2000) # 400 for MultiviewX
     parser.add_argument('--train_ratio', type=float, default=0.9)
 
     parser.add_argument('--reID', action='store_true')
@@ -174,9 +174,9 @@ if __name__ == '__main__':
     parser.add_argument('--embed_dims', type=int, default=512)
 
     # Matcher 
-    parser.add_argument('--set_cost_class', default=1, type=float,
+    parser.add_argument('--set_cost_class', default=2, type=float,
                         help="Class coefficient in the matching cost")
-    parser.add_argument('--set_cost_bbox', default=5, type=float,
+    parser.add_argument('--set_cost_bbox', default=0.2, type=float,
                         help="L1 box coefficient in the matching cost")
     
     # Loss coefficients 

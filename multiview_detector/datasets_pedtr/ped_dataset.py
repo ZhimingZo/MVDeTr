@@ -32,7 +32,8 @@ class PedestrianDataset(Dataset):
         self.is_train = is_train
         self.reID = args.reID
         self.ID = {}
-        
+        self.gt_fpath = os.path.join(self.root, 'gt.txt')
+         
         if self.is_train:
             frame_range = range(0, int(self.num_frame * self.train_ratio))
         else:

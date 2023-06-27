@@ -60,12 +60,9 @@ class PedTrainer(BaseTrainer):
                 weight_dict = self.criterion.weight_dict
                 #print(loss_dict.keys())
                 loss = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
-                
-
-        
- 
-                #print('boxes loss: ' + str(loss_dict['loss_bbox']))
-                #print('class loss: ' + str(loss_dict['loss_ce']))
+            
+                print('boxes loss: ' + str(loss_dict['loss_bbox']))
+                print('class loss: ' + str(loss_dict['loss_ce']))
                 # multiview regularization
                 # Match loss 
                 t_f = time.time()
@@ -102,7 +99,8 @@ class PedTrainer(BaseTrainer):
             targets = [{k: v.to(self.device).squeeze() for k, v in targets.items()}]
             # with autocast():
             with torch.no_grad():
-                print(imgs.shape)
+                #print(imgs.shape)
+                print(batch_idx)
                 outputs  = self.model(img=imgs, proj_mat=proj_mats)
                 probas = F.softmax(outputs['pred_logits'], -1)[0]
                 #keep = probas.max(-1).values #> 0.7 #
@@ -116,12 +114,19 @@ class PedTrainer(BaseTrainer):
                 #exit()
                 boxes = outputs['pred_boxes'][0]
                 boxes = boxes[index]
-                boxes[:, 0] = (boxes[:, 0] * self.dataloader_test.dataset.img_shape[1]).long()
-                boxes[:, 1] = (boxes[:, 1] * self.dataloader_test.dataset.img_shape[0]).long()
+                boxes[:, 0] = (boxes[:, 0] * self.dataloader_test.dataset.world_grid_shape[0]).long()
+                boxes[:, 1] = (boxes[:, 1] * self.dataloader_test.dataset.world_grid_shape[1]).long()
+                res = boxes.cpu()
+                res = torch.concat((torch.ones(boxes.shape[0]).unsqueeze(1)*frame.cpu(), res), axis=1)
+                res_list.append(res)
+                #res = res.cpu().numpy() 
+                #res = np.
+                
             #print(boxes.shape)
-            print(boxes)
-            print(frame)
-            exit()
+            #print(boxes)
+            #print(frame)
+            #exit()
+            '''
             if res_fpath is not None:
                 xys = mvdet_decode(torch.sigmoid(world_heatmap.detach().cpu()), world_offset.detach().cpu(),
                                    reduce=self.dataloader.dataset.world_reduce)
@@ -139,6 +144,7 @@ class PedTrainer(BaseTrainer):
                     ids, count = nms(pos, s, 20, np.inf)
                     res = torch.cat([torch.ones([count, 1]) * frame[b], pos[ids[:count]]], dim=1)
                     res_list.append(res)
+            '''
         t1 = time.time()
         t_epoch = t1 - t0
   
@@ -163,8 +169,8 @@ class PedTrainer(BaseTrainer):
             res_list = torch.cat(res_list, dim=0).numpy() if res_list else np.empty([0, 3])
             np.savetxt(res_fpath, res_list, '%d')
             recall, precision, moda, modp = evaluate(os.path.abspath(res_fpath),
-                                                     os.path.abspath(self.dataloader.dataset.gt_fpath),
-                                                     self.dataloader.dataset.base.__name__)
+                                                     os.path.abspath(self.dataloader_test.dataset.gt_fpath),
+                                                     self.dataloader_test.dataset)
             print(f'moda: {moda:.1f}%, modp: {modp:.1f}%, prec: {precision:.1f}%, recall: {recall:.1f}%')
         else:
             moda = 0

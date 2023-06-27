@@ -140,7 +140,7 @@ class PedTransformer(nn.Module):
         self.output_proj = nn.Linear(self.embed_dims, self.embed_dims)
         self.sigmoid = nn.Sigmoid()
         # output branches: classification and regression
-        '''
+        
         self.cls_branch = nn.Sequential(
             nn.Linear(self.embed_dims, self.embed_dims),
             nn.LayerNorm(self.embed_dims),
@@ -164,7 +164,7 @@ class PedTransformer(nn.Module):
             nn.ReLU(inplace=False),
             nn.Linear(self.embed_dims, self.reg_out_channels),
         ) 
-        '''
+        
          
     def query_generator(self, ):
         pass 
@@ -185,8 +185,8 @@ class PedTransformer(nn.Module):
         eps = 1e-5
         mask = (reference_points_cam[..., 2:3] > eps)
         reference_points_cam = reference_points_cam[..., 0:2] / torch.maximum(
-        reference_points_cam[..., 2:3], torch.ones_like(reference_points_cam[..., 2:3])*eps)
-        reference_points_cam[..., 0] = reference_points_cam[..., 0] / self.org_img_res[1]
+        reference_points_cam[..., 2:3], torch.ones_like(reference_points_cam[..., 2:3])*eps) #  [x, y] in image space 
+        reference_points_cam[..., 0] = reference_points_cam[..., 0] / self.org_img_res[1] 
         reference_points_cam[..., 1] = reference_points_cam[..., 1] / self.org_img_res[0]
 
         reference_points_cam = (reference_points_cam - 0.5) * 2

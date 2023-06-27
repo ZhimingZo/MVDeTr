@@ -31,6 +31,11 @@ class SetCriterion(nn.Module):
         empty_weight = torch.ones(self.num_classes + 1)
         empty_weight[-1] = self.eos_coef
         self.register_buffer('empty_weight', empty_weight)
+        
+        # parameters for focal loss 
+        self.gamma = 2 
+        self.alpha = 0.25
+        self.eps = 1e-12
 
     def loss_labels(self, outputs, targets, indices, num_boxes, log=True):
         """Classification loss (NLL)
@@ -57,6 +62,51 @@ class SetCriterion(nn.Module):
             # TODO this should probably be a separate loss, not hacked in this one here
             losses['class_error'] = 100 - accuracy(src_logits[idx], target_classes_o)[0]
         return losses
+    
+    def loss__focal_cost(self, cls_pred, gt_labels, indices, num_boxes, log=True):
+        """
+        Args:
+            cls_pred (Tensor): Predicted classification logits, shape
+                (num_query, num_class).
+            gt_labels (Tensor): Label of `gt_bboxes`, shape (num_gt,).
+
+        Returns:
+            torch.Tensor: cls_cost value with weight
+        """
+        cls_pred = cls_pred.sigmoid()
+        neg_cost = -(1 - cls_pred + self.eps).log() * (
+            1 - self.alpha) * cls_pred.pow(self.gamma)
+        pos_cost = -(cls_pred + self.eps).log() * self.alpha * (
+            1 - cls_pred).pow(self.gamma)
+
+        cls_cost = pos_cost[:, gt_labels] - neg_cost[:, gt_labels]
+        return cls_cost  
+
+    
+    def loss_focal_binary_cost(self, cls_pred, gt_labels, indices, num_boxes, log=True):
+        """ binary focal loss
+        Args:
+            cls_pred (Tensor): Predicted classfication logits
+                in shape (num_query, d1, ..., dn), dtype=torch.float32.
+            gt_labels (Tensor): Ground truth in shape (num_gt, d1, ..., dn),
+                dtype=torch.long. Labels should be binary.
+
+        Returns:
+            Tensor: Focal cost matrix with weight in shape\
+                (num_query, num_gt).
+        """
+        cls_pred = cls_pred.flatten(1)
+        gt_labels = gt_labels.flatten(1).float()
+        n = cls_pred.shape[1]
+        cls_pred = cls_pred.sigmoid()
+        neg_cost = -(1 - cls_pred + self.eps).log() * (
+            1 - self.alpha) * cls_pred.pow(self.gamma)
+        pos_cost = -(cls_pred + self.eps).log() * self.alpha * (
+            1 - cls_pred).pow(self.gamma)
+
+        cls_cost = torch.einsum('nc,mc->nm', pos_cost, gt_labels) + \
+            torch.einsum('nc,mc->nm', neg_cost, (1 - gt_labels))
+        return cls_cost / n 
     
     
     def loss_boxes(self, outputs, targets, indices, num_boxes):
@@ -138,4 +188,4 @@ def test():
                              eos_coef=0.1, losses=losses)
     print(criterion)
 
-test()
+#test()
