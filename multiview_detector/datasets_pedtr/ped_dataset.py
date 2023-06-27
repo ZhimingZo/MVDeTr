@@ -121,11 +121,10 @@ class PedestrianDataset(Dataset):
         imgs =  torch.stack(imgs) # shape torch.Size([7, 3, 1080, 1920])
         boxes = torch.from_numpy(self.map_gt[frame]).float()
         #   normalize 
-        boxes[:, 0] = boxes[:, 0] / self.world_grid_shape[1]
-        boxes[:, 1] = boxes[:, 1] / self.world_grid_shape[0]
-
-
-        labels = torch.ones(boxes.shape[0], dtype=torch.long)
+        boxes[:, 0] = boxes[:, 0] / self.world_grid_shape[0]
+        boxes[:, 1] = boxes[:, 1] / self.world_grid_shape[1]
+        labels = torch.zeros(boxes.shape[0], dtype=torch.long)
+        
         if self.reID:
             ID = self.ID[frame]
         worldgrid2imgcoord_matrices = self.get_worldgrid2imagecoord_matrices(self.intrinsic_matrices,

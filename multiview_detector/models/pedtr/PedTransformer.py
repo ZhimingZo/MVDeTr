@@ -126,7 +126,7 @@ class PedTransformer(nn.Module):
         self.reg_out_channels = 2
         self.org_img_res = [1080, 1920]
         self.device = args.device
-
+       
         self.query_gen = Query_genrator(num_query=self.num_query, channels=self.embed_dims)
         
         self.img_backbone  = nn.Sequential(*list(resnet18(pretrained=True,
@@ -140,19 +140,31 @@ class PedTransformer(nn.Module):
         self.output_proj = nn.Linear(self.embed_dims, self.embed_dims)
         self.sigmoid = nn.Sigmoid()
         # output branches: classification and regression
+        '''
         self.cls_branch = nn.Sequential(
             nn.Linear(self.embed_dims, self.embed_dims),
             nn.LayerNorm(self.embed_dims),
             nn.ReLU(inplace=False),
             nn.Linear(self.embed_dims, self.cls_out_channels),
-        )         
+        ) 
+        '''
+        self.cls_branch = nn.Linear(self.embed_dims, self.cls_out_channels)
+        self.reg_branch = nn.Sequential(
+            nn.Linear(self.embed_dims, self.embed_dims),
+            nn.ReLU(inplace=False),
+            nn.Linear(self.embed_dims, self.embed_dims),
+            nn.ReLU(inplace=False),
+            nn.Linear(self.embed_dims, self.reg_out_channels)
+        )
 
+        '''
         self.reg_branch = nn.Sequential(
             nn.Linear(self.embed_dims, self.embed_dims),
             nn.LayerNorm(self.embed_dims),
             nn.ReLU(inplace=False),
             nn.Linear(self.embed_dims, self.reg_out_channels),
         ) 
+        '''
          
     def query_generator(self, ):
         pass 
@@ -216,11 +228,13 @@ class PedTransformer(nn.Module):
             output = torch.nan_to_num(output) # torch.Size([1, 512, 200, 7, 1])
             #mask = torch.nan_to_num(mask) # torch.Size([1, 1, 200, 7, 1])
             
+            mask = ~mask
+            
             output = output.view(self.num_query, self.num_cams, -1)
             mask = mask.view(self.num_query, 1, self.num_cams)
             mask = mask.repeat(self.num_heads, 1, 1).repeat(1, self.num_cams, 1) 
-            
-            output, output_weights = self.multi_head_attn(query=output, key=output, value=output, attn_mask=~mask) # torch.Size([200, 7, 512]) torch.Size([200, 7, 7])
+            #print(output.shape, mask.shape)  #torch.Size([100, 7, 512]) torch.Size([400, 7, 7])
+            output, output_weights = self.multi_head_attn(query=output, key=output, value=output, attn_mask=mask) # torch.Size([200, 7, 512]) torch.Size([200, 7, 7])
            
             output = torch.mean(output, dim=1, keepdim=True)
             output = output.permute(1, 0, 2) # torch.Size([1, 200, 512])
@@ -234,7 +248,10 @@ class PedTransformer(nn.Module):
             #update query 
             outputs_class = self.cls_branch(output)
             outputs_coords = self.reg_branch(output).sigmoid()
+            #print(outputs_class.shape,outputs_coords.shape)
+            #exit()
             #print(outputs_class.shape, outputs_coords.shape)
+            
             out = {'pred_logits': outputs_class, 'pred_boxes': outputs_coords}
             return out
         
@@ -245,7 +262,6 @@ def build_model(args):
     device = torch.device(args.device)
     # build_model  
     model = PedTransformer(args).to(device)
-
     # build matcher 
     matcher = build_matcher(args)
 

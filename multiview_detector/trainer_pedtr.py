@@ -4,6 +4,7 @@ import os
 import numpy as np
 import torch
 from torch import nn
+import torch.nn.functional as F
 from torch.cuda.amp import autocast
 import matplotlib.pyplot as plt
 from PIL import Image
@@ -51,14 +52,20 @@ class PedTrainer(BaseTrainer):
                 imgs = imgs.to(self.device)
                 proj_mats=proj_mats.to(self.device)
                 targets = [{k: v.to(self.device).squeeze() for k, v in targets.items()}]
-                
+
                 # supervised
                 outputs  = self.model(img=imgs, proj_mat=proj_mats)
                  
                 loss_dict = self.criterion(outputs, targets)
                 weight_dict = self.criterion.weight_dict
+                #print(loss_dict.keys())
                 loss = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
                 
+
+        
+ 
+                #print('boxes loss: ' + str(loss_dict['loss_bbox']))
+                #print('class loss: ' + str(loss_dict['loss_ce']))
                 # multiview regularization
                 # Match loss 
                 t_f = time.time()
@@ -70,19 +77,10 @@ class PedTrainer(BaseTrainer):
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=0.1)
                 self.optimizer.step()
                 losses += loss.item()
-                print(loss.item())
-                if not math.isfinite(loss):
-                    print("Loss is {}, stopping training".format(loss))
-                    print(loss)
-                    sys.exit(1)
-
-               
-                
                 
                 t_b = time.time()
                 t_backward += t_b - t_f
 
-               
                 self.scheduler.step()
                 if (batch_idx + 1) % self.log_interval == 0 or batch_idx + 1 == len(self.dataloader_train):
                     t1 = time.time()
@@ -91,27 +89,45 @@ class PedTrainer(BaseTrainer):
                         f'Time: {t_epoch:.1f}')
                 #print("hello")
         return losses / len(self.dataloader_train)
-'''   
-    def test(self,res_fpath=None, visualize=False):
+  
+    def test(self, res_fpath=None, visualize=False):
         self.model.eval()
+        self.criterion.eval()
         losses = 0
         res_list = []
         t0 = time.time()
-        for batch_idx, (data, world_gt, imgs_gt, affine_mats, frame) in enumerate(self.dataloader_test):
-            B, N = imgs_gt['heatmap'].shape[:2]
-            data = data.cuda()
-            for key in imgs_gt.keys():
-                imgs_gt[key] = imgs_gt[key].view([B * N] + list(imgs_gt[key].shape)[2:])
+        for batch_idx, (imgs, proj_mats, targets, frame) in enumerate(self.dataloader_test):
+            imgs = imgs.to(self.device)
+            proj_mats=proj_mats.to(self.device)
+            targets = [{k: v.to(self.device).squeeze() for k, v in targets.items()}]
             # with autocast():
             with torch.no_grad():
-                output_coords, out_cls  = self.model(img=imgs, proj_mat=proj_mats)
-
+                print(imgs.shape)
+                outputs  = self.model(img=imgs, proj_mat=proj_mats)
+                probas = F.softmax(outputs['pred_logits'], -1)[0]
+                #keep = probas.max(-1).values #> 0.7 #
+                #score, index = probas.max(-1)#.values #> 0.7 #
+                index = torch.nonzero((probas[..., 0] > 0.7).to(torch.int32)).flatten()
+                score = probas[index, 0] 
+                #print(index.shape, score.shape)
+                #exit()
+                #print(outputs['pred_boxes'].shape) # [1, 100, 2]
+                #print(keep.shape) # [1, 100]
+                #exit()
+                boxes = outputs['pred_boxes'][0]
+                boxes = boxes[index]
+                boxes[:, 0] = (boxes[:, 0] * self.dataloader_test.dataset.img_shape[1]).long()
+                boxes[:, 1] = (boxes[:, 1] * self.dataloader_test.dataset.img_shape[0]).long()
+            #print(boxes.shape)
+            print(boxes)
+            print(frame)
+            exit()
             if res_fpath is not None:
                 xys = mvdet_decode(torch.sigmoid(world_heatmap.detach().cpu()), world_offset.detach().cpu(),
-                                   reduce=dataloader.dataset.world_reduce)
+                                   reduce=self.dataloader.dataset.world_reduce)
                 # xys = mvdet_decode(world_heatmap.detach().cpu(), reduce=dataloader.dataset.world_reduce)
                 grid_xy, scores = xys[:, :, :2], xys[:, :, 2:3]
-                if dataloader.dataset.base.indexing == 'xy':
+                if self.dataloader.dataset.indexing == 'xy':
                     positions = grid_xy
                 else:
                     positions = grid_xy[:, :, [1, 0]]
@@ -126,7 +142,7 @@ class PedTrainer(BaseTrainer):
         t1 = time.time()
         t_epoch = t1 - t0
   
-        
+        '''
         if visualize:
             # visualizing the heatmap for world
             fig = plt.figure()
@@ -142,17 +158,15 @@ class PedTrainer(BaseTrainer):
             img0 = Image.fromarray((img0 * 255).astype('uint8'))
             foot_cam_result = add_heatmap_to_image(heatmap0_foot, img0)
             foot_cam_result.save(os.path.join(self.logdir, 'cam1_foot.jpg'))
-        
+        '''
         if res_fpath is not None:
             res_list = torch.cat(res_list, dim=0).numpy() if res_list else np.empty([0, 3])
             np.savetxt(res_fpath, res_list, '%d')
             recall, precision, moda, modp = evaluate(os.path.abspath(res_fpath),
-                                                     os.path.abspath(dataloader.dataset.gt_fpath),
-                                                     dataloader.dataset.base.__name__)
+                                                     os.path.abspath(self.dataloader.dataset.gt_fpath),
+                                                     self.dataloader.dataset.base.__name__)
             print(f'moda: {moda:.1f}%, modp: {modp:.1f}%, prec: {precision:.1f}%, recall: {recall:.1f}%')
         else:
             moda = 0
-        #print(f'Test, loss: {losses / len(dataloader):.6f}, Time: {t_epoch:.3f}')
         print(f'Test, Time: {t_epoch:.3f}')
-        return losses / len(dataloader), moda
-'''       
+        return losses / len(self.dataloader_test), moda

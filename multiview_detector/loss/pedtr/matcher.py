@@ -142,13 +142,16 @@ class HungarianMatcher(nn.Module):
         # We flatten to compute the cost matrices in a batch
         out_prob = outputs["pred_logits"].flatten(0, 1).softmax(-1)  # [batch_size * num_queries, num_classes]  #[100, 2]
         out_bbox = outputs["pred_boxes"].flatten(0, 1)  # [batch_size * num_queries, 4] #[100, 2]
-
+        
+        
         
         # Also concat the target labels and boxes
         tgt_ids = torch.cat([v["labels"] for v in targets])
         tgt_bbox = torch.cat([v["boxes"] for v in targets])
 
-
+        #print(tgt_ids)
+        #print(out_prob.shape)
+        #exit()
         # Compute the classification cost. Contrary to the loss, we don't use the NLL,
         # but approximate it in 1 - proba[target class].
         # The 1 is a constant that doesn't change the matching, it can be ommitted.
@@ -199,7 +202,7 @@ class HungarianMatcher(nn.Module):
                 print(f"Invalid value at index ({i}, {j}): {matrix[i, j]}")
             exit()
         '''
-        sizes = [len(v["boxes"].squeeze()) for v in targets] # 1
+        sizes = [len(v["boxes"]) for v in targets] # 1
         
         indices = [linear_sum_assignment(c[i]) for i, c in enumerate(C.split(sizes, -1))]
         

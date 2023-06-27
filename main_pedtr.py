@@ -128,8 +128,8 @@ def main(args):
         model.load_state_dict(torch.load(f'logs/{args.dataset}/{args.resume}/MultiviewDetector.pth'))
         #model.load_state_dict(torch.load(logdir))
         model.eval()
-    #print('Test loaded model...')
-    #trainer.test(None, test_loader, res_fpath, visualize=True)
+    print('Test loaded model...')
+    trainer.test(res_fpath, visualize=False)
 
 
 if __name__ == '__main__':
