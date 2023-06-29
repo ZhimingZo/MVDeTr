@@ -14,8 +14,6 @@ def init_weight(m):
             nn.init.xavier_uniform_(m.weight)
             nn.init.zeros_(m.bias)
 
-
-
 def ray_encoded_img(img, ray):
     assert len(img.shape) == 5 
     ray_encoded_img = []
@@ -109,6 +107,29 @@ class FeedForward(nn.Module):
         )
     def forward(self, x):
         return self.mlp(x) 
+    
+class Transformer(nn.Module):
+    def __init__(self, dim, depth, heads, mlp_dim, dropout):
+        super().__init__() 
+        self.layers = nn.ModuleList([])
+        for _  in range(depth):
+            self.layers.append(nn.ModuleList([
+                nn.LayerNorm(dim),
+                nn.MultiheadAttention(embed_dim=dim, num_heads=heads, dropout=dropout, batch_first=True), 
+                FeedForward(dim, mlp_dim, dim, dropout=dropout),
+                nn.LayerNorm(dim),
+            ]))
+    def forward(self, x, mask):
+        org_x = x 
+        for norm1, attn, ff, norm2 in self.layers:
+            x = norm1(x)
+            x, _ = attn(query=x, key=x, value=x, attn_mask=mask) 
+            x = x + org_x
+            x = norm2(x)
+            x = ff(x) + x
+            org_x = x
+        return x 
+
 
 class PedTransformer(nn.Module): 
     def __init__(self, args, num_points=1, grid_shape=[480, 1440], num_heads=4):
@@ -122,7 +143,7 @@ class PedTransformer(nn.Module):
         self.num_heads = num_heads
         self.dropout=args.dropout
         self.embed_dims = args.embed_dims
-        self.cls_out_channels = 2
+        self.cls_out_channels = 3
         self.reg_out_channels = 2
         self.org_img_res = [1080, 1920]
         self.device = args.device
@@ -131,11 +152,13 @@ class PedTransformer(nn.Module):
         
         self.img_backbone  = nn.Sequential(*list(resnet18(pretrained=True,
                                                      replace_stride_with_dilation=[False, True, True]).children())[:-2])
-        self.MLPs_query_to_ground_coordinates =  PreNorm(self.embed_dims, FeedForward(self.embed_dims, hidden_dim=128, output_dim=2))
+        #self.MLPs_query_to_ground_coordinates =  PreNorm(self.embed_dims, FeedForward(self.embed_dims, hidden_dim=128, output_dim=2))
+        self.MLPs_query_to_ground_coordinates = nn.Linear(self.embed_dims, 2)
         self.deformable_transformer = None 
         self.query = self.query_gen()
 
-        self.multi_head_attn = nn.MultiheadAttention(embed_dim=self.embed_dims, num_heads=4, dropout=self.dropout, batch_first=True)
+        #self.multi_head_attn = nn.MultiheadAttention(embed_dim=self.embed_dims, num_heads=4, dropout=self.dropout, batch_first=True)
+        self.transformer = Transformer(dim=self.embed_dims, depth=3, heads=self.num_heads, mlp_dim=self.embed_dims, dropout=self.dropout)
         self.dropout=nn.Dropout(self.dropout)
         self.output_proj = nn.Linear(self.embed_dims, self.embed_dims)
         self.sigmoid = nn.Sigmoid()
@@ -144,7 +167,10 @@ class PedTransformer(nn.Module):
         self.cls_branch = nn.Sequential(
             nn.Linear(self.embed_dims, self.embed_dims),
             nn.LayerNorm(self.embed_dims),
-            nn.ReLU(inplace=False),
+            nn.ReLU(inplace=True),
+            nn.Linear(self.embed_dims, self.embed_dims),
+            nn.LayerNorm(self.embed_dims),
+            nn.ReLU(inplace=True),
             nn.Linear(self.embed_dims, self.cls_out_channels),
         ) 
         '''
@@ -160,8 +186,9 @@ class PedTransformer(nn.Module):
         '''
         self.reg_branch = nn.Sequential(
             nn.Linear(self.embed_dims, self.embed_dims),
-            nn.LayerNorm(self.embed_dims),
-            nn.ReLU(inplace=False),
+            nn.ReLU(inplace=True),
+            nn.Linear(self.embed_dims, self.embed_dims),
+            nn.ReLU(inplace=True),
             nn.Linear(self.embed_dims, self.reg_out_channels),
         ) 
         
@@ -175,7 +202,8 @@ class PedTransformer(nn.Module):
 
         assert len(proj_mat.shape) == 4 and proj_mat.shape[1] == self.num_cams
 
-        ground_coordinates = torch.cat((ground_coordinates, torch.ones_like(ground_coordinates[..., :1])), dim=1)
+        ground_coordinates = torch.cat((ground_coordinates, torch.ones_like(ground_coordinates[..., :1])), dim=-1)
+         
         img_coord =  proj_mat[0].float() @ ground_coordinates.T # shape torch.Size([7, 3, 100])
         img_coord = torch.transpose(img_coord, 1, 2)
         
@@ -234,8 +262,9 @@ class PedTransformer(nn.Module):
             mask = mask.view(self.num_query, 1, self.num_cams)
             mask = mask.repeat(self.num_heads, 1, 1).repeat(1, self.num_cams, 1) 
             #print(output.shape, mask.shape)  #torch.Size([100, 7, 512]) torch.Size([400, 7, 7])
-            output, output_weights = self.multi_head_attn(query=output, key=output, value=output, attn_mask=mask) # torch.Size([200, 7, 512]) torch.Size([200, 7, 7])
-           
+            #output, output_weights = self.multi_head_attn(query=output, key=output, value=output, attn_mask=mask) # torch.Size([200, 7, 512]) torch.Size([200, 7, 7])
+            output = self.transformer(x=output, mask=mask)
+
             output = torch.mean(output, dim=1, keepdim=True)
             output = output.permute(1, 0, 2) # torch.Size([1, 200, 512])
             output = self.dropout(self.output_proj(output)) + queries.unsqueeze(dim=0)    # torch.Size([1, 200, 512])
@@ -268,10 +297,11 @@ def build_model(args):
     weight_dict = {'loss_ce': args.ce_loss_coef, 'loss_bbox': args.bbox_loss_coef}
     #losses = ['labels', 'boxes']
     losses = ['labels', 'boxes']
-    criterion = SetCriterion(num_classes=1, matcher=matcher, weight_dict=weight_dict,
+    criterion = SetCriterion(num_classes=2, matcher=matcher, weight_dict=weight_dict,
                              eos_coef=args.eos_coef, losses=losses)
     criterion.to(device)
-
+    #print(model)
+    #exit()
     return model, criterion
 
    

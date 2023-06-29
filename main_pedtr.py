@@ -61,7 +61,7 @@ def main(args):
     train_set = build_dataset(isTrain=True, args=args)
     test_set = build_dataset(isTrain=False, args=args)
 
-    train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers,
+    train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers,
                               pin_memory=True, worker_init_fn=seed_worker)
     test_loader = DataLoader(test_set, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers,
                              pin_memory=True, worker_init_fn=seed_worker)
@@ -91,7 +91,9 @@ def main(args):
     # model
      
     model, criterion = build_model(args)
-    
+    #print(model)
+    #print(criterion)
+    #exit()
     param_dicts = [{"params": [p for n, p in model.named_parameters() if 'img_backbone' not in n and p.requires_grad],},
                    {"params": [p for n, p in model.named_parameters() if 'img_backbone' in n and p.requires_grad],
                     "lr": args.lr * args.base_lr_ratio, }, ]
@@ -138,10 +140,10 @@ if __name__ == '__main__':
     
     parser.add_argument('--id_ratio', type=float, default=0)
     parser.add_argument('-j', '--num_workers', type=int, default=4)
-    parser.add_argument('--dropcam', type=float, default=0.0)
-    parser.add_argument('--epochs', type=int, default=24, help='number of epochs to train')
-    #parser.add_argument('--lr', type=float, default=1e-4, help='learning rate')
-    parser.add_argument('--lr', type=float, default=2e-4, help='learning rate')
+    parser.add_argument('--dropcam', type=float, default=0) # org 0 
+    parser.add_argument('--epochs', type=int, default=500, help='number of epochs to train')
+    parser.add_argument('--lr', type=float, default=1e-4, help='learning rate')
+    #parser.add_argument('--lr', type=float, default=1e-3, help='learning rate')
     parser.add_argument('--base_lr_ratio', type=float, default=0.1)
     parser.add_argument('--weight_decay', type=float, default=1e-4)
     parser.add_argument('--resume', type=str, default=None)
@@ -162,7 +164,7 @@ if __name__ == '__main__':
     parser.add_argument('--world_grid_reduce', type=int, default=1)
     parser.add_argument('--img_reduce', type=int, default=1)
     parser.add_argument('--num_cams', type=int, default=7)   # 6 for MultiviewX
-    parser.add_argument('--num_frames', type=int, default=2000) # 400 for MultiviewX
+    parser.add_argument('--num_frames', type=int, default=2000) # 400 for MultiviewXgit 
     parser.add_argument('--train_ratio', type=float, default=0.9)
 
     parser.add_argument('--reID', action='store_true')
@@ -174,9 +176,9 @@ if __name__ == '__main__':
     parser.add_argument('--embed_dims', type=int, default=512)
 
     # Matcher 
-    parser.add_argument('--set_cost_class', default=2, type=float,
+    parser.add_argument('--set_cost_class', default=1, type=float,
                         help="Class coefficient in the matching cost")
-    parser.add_argument('--set_cost_bbox', default=0.2, type=float,
+    parser.add_argument('--set_cost_bbox', default=5, type=float,
                         help="L1 box coefficient in the matching cost")
     
     # Loss coefficients 

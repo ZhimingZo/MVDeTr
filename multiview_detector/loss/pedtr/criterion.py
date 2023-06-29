@@ -29,6 +29,7 @@ class SetCriterion(nn.Module):
         self.eos_coef = eos_coef
         self.losses = losses
         empty_weight = torch.ones(self.num_classes + 1)
+         
         empty_weight[-1] = self.eos_coef
         self.register_buffer('empty_weight', empty_weight)
         
@@ -63,7 +64,7 @@ class SetCriterion(nn.Module):
             losses['class_error'] = 100 - accuracy(src_logits[idx], target_classes_o)[0]
         return losses
     
-    def loss__focal_cost(self, cls_pred, gt_labels, indices, num_boxes, log=True):
+    def loss_focal_cost(self, cls_pred, targets, indices, num_boxes, log=True):
         """
         Args:
             cls_pred (Tensor): Predicted classification logits, shape
@@ -73,14 +74,19 @@ class SetCriterion(nn.Module):
         Returns:
             torch.Tensor: cls_cost value with weight
         """
-        cls_pred = cls_pred.sigmoid()
+        tgt_ids = torch.cat([v["labels"] for v in targets])
+        #print(tgt_ids.shape)
+        cls_pred = cls_pred['pred_logits'].sigmoid()
+        #print(cls_pred.shape)
         neg_cost = -(1 - cls_pred + self.eps).log() * (
             1 - self.alpha) * cls_pred.pow(self.gamma)
         pos_cost = -(cls_pred + self.eps).log() * self.alpha * (
             1 - cls_pred).pow(self.gamma)
 
-        cls_cost = pos_cost[:, gt_labels] - neg_cost[:, gt_labels]
-        return cls_cost  
+        cls_cost = pos_cost[:, tgt_ids] - neg_cost[:, tgt_ids]
+        #print(cls_cost.shape)
+        losses = {'loss_ce': cls_cost.mean()}
+        return losses
 
     
     def loss_focal_binary_cost(self, cls_pred, gt_labels, indices, num_boxes, log=True):
@@ -95,7 +101,7 @@ class SetCriterion(nn.Module):
             Tensor: Focal cost matrix with weight in shape\
                 (num_query, num_gt).
         """
-        cls_pred = cls_pred.flatten(1)
+        cls_pred = cls_pred['pred_logit'].flatten(1)
         gt_labels = gt_labels.flatten(1).float()
         n = cls_pred.shape[1]
         cls_pred = cls_pred.sigmoid()
@@ -141,6 +147,7 @@ class SetCriterion(nn.Module):
     def get_loss(self, loss, outputs, targets, indices, num_boxes, **kwargs):
         loss_map = {
             'labels': self.loss_labels,
+            #'labels': self.loss_focal_cost,
             'boxes': self.loss_boxes,
         }
         assert loss in loss_map, f'do you really want to compute {loss} loss?'

@@ -29,7 +29,7 @@ class PedTrainer(BaseTrainer):
         self.logdir = logdir
         self.criterion = criterion
         self.optimizer = optimizer
-
+       
         self.epochs=args.epochs
         self.dataloader_train = dataloader_train
         self.dataloader_test = dataloader_test
@@ -47,8 +47,11 @@ class PedTrainer(BaseTrainer):
         t_forward = 0
         t_backward = 0
         for epoch in tqdm.tqdm(range(1, self.epochs + 1)):
+            
             print('Training...:' + str(epoch))
+            loss_epo_box, loss_epo_cls=0, 0 
             for batch_idx, (imgs, proj_mats, targets, frame) in enumerate(self.dataloader_train):
+                print(str(batch_idx) + ":")
                 imgs = imgs.to(self.device)
                 proj_mats=proj_mats.to(self.device)
                 targets = [{k: v.to(self.device).squeeze() for k, v in targets.items()}]
@@ -61,6 +64,8 @@ class PedTrainer(BaseTrainer):
                 #print(loss_dict.keys())
                 loss = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
             
+                loss_epo_box += loss_dict['loss_bbox']
+                loss_epo_cls += loss_dict['loss_ce']
                 print('boxes loss: ' + str(loss_dict['loss_bbox']))
                 print('class loss: ' + str(loss_dict['loss_ce']))
                 # multiview regularization
@@ -71,7 +76,7 @@ class PedTrainer(BaseTrainer):
                 self.optimizer.zero_grad()
                 
                 loss.backward()
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=0.1)
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1)
                 self.optimizer.step()
                 losses += loss.item()
                 
@@ -79,12 +84,17 @@ class PedTrainer(BaseTrainer):
                 t_backward += t_b - t_f
 
                 self.scheduler.step()
-                if (batch_idx + 1) % self.log_interval == 0 or batch_idx + 1 == len(self.dataloader_train):
-                    t1 = time.time()
-                    t_epoch = t1 - t0
-                    print(f'Train Epoch: {epoch}, Batch:{(batch_idx + 1)}, loss: {losses / (batch_idx + 1):.6f}, '
-                        f'Time: {t_epoch:.1f}')
+                #if (batch_idx + 1) % self.log_interval == 0 or batch_idx + 1 == len(self.dataloader_train):
+                #    t1 = time.time()
+                #    t_epoch = t1 - t0
+                #    print(f'Train Epoch: {epoch}, Batch:{(batch_idx + 1)}, loss: {losses / (batch_idx + 1):.6f}, '
+                #        f'Time: {t_epoch:.1f}')
                 #print("hello")
+            if epoch % 50 == 0: 
+                res_fpath = os.path.join(self.logdir, "pred_" + str(epoch)+".txt")
+                self.test(res_fpath=res_fpath, visualize=False)
+                self.model.train()
+            print(f'Train Epoch: {epoch}, BboxLoss: {loss_epo_box:.6f}, ClsLoss:{loss_epo_cls:.6f}')   
         return losses / len(self.dataloader_train)
   
     def test(self, res_fpath=None, visualize=False):
@@ -93,6 +103,7 @@ class PedTrainer(BaseTrainer):
         losses = 0
         res_list = []
         t0 = time.time()
+        print("Evaluating...")
         for batch_idx, (imgs, proj_mats, targets, frame) in enumerate(self.dataloader_test):
             imgs = imgs.to(self.device)
             proj_mats=proj_mats.to(self.device)
@@ -105,7 +116,9 @@ class PedTrainer(BaseTrainer):
                 probas = F.softmax(outputs['pred_logits'], -1)[0]
                 #keep = probas.max(-1).values #> 0.7 #
                 #score, index = probas.max(-1)#.values #> 0.7 #
-                index = torch.nonzero((probas[..., 0] > 0.7).to(torch.int32)).flatten()
+                #print(probas)
+                #exit()
+                index = torch.nonzero((probas[..., 1] > 0.7).to(torch.int32)).flatten()
                 score = probas[index, 0] 
                 #print(index.shape, score.shape)
                 #exit()
@@ -119,6 +132,7 @@ class PedTrainer(BaseTrainer):
                 res = boxes.cpu()
                 res = torch.concat((torch.ones(boxes.shape[0]).unsqueeze(1)*frame.cpu(), res), axis=1)
                 res_list.append(res)
+                
                 #res = res.cpu().numpy() 
                 #res = np.
                 

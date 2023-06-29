@@ -7,7 +7,8 @@ import numpy as np
 import cv2
 import xml.etree.ElementTree as ET 
 from PIL import Image 
-
+import argparse
+from torch.utils.data import DataLoader 
 
 
 
@@ -124,7 +125,7 @@ class PedestrianDataset(Dataset):
         #   normalize 
         boxes[:, 0] = boxes[:, 0] / self.world_grid_shape[0]
         boxes[:, 1] = boxes[:, 1] / self.world_grid_shape[1]
-        labels = torch.zeros(boxes.shape[0], dtype=torch.long)
+        labels = torch.ones(boxes.shape[0], dtype=torch.long)
         
         if self.reID:
             ID = self.ID[frame]
@@ -232,59 +233,74 @@ def build_dataset(isTrain, args):
 
 
 
-'''
+
 def test(): 
-    root = '../Data/Wildtrack'
-    num_cam = 7
-    num_frame = 2000 
-    img_shape = [1080, 1920] 
-    world_grid_shape = [480, 1440] 
-    img_reduce = 4
-    grid_reduce =1 
+    parser = argparse.ArgumentParser(description='Multiview detector')
+     #Dataset 
+    parser.add_argument('-r', '--root', type=str, default='../Data/')
+    parser.add_argument('-d', '--dataset', type=str, default='Wildtrack', choices=['Wildtrack', 'MultiviewX'])
+    parser.add_argument('-b', '--batch_size', type=int, default=1, help='input batch size for training')
+    parser.add_argument('--world_grid_reduce', type=int, default=1)
+    parser.add_argument('--img_reduce', type=int, default=1)
+    parser.add_argument('--num_cams', type=int, default=7)   # 6 for MultiviewX
+    parser.add_argument('--num_frames', type=int, default=2000) # 400 for MultiviewXgit 
+    parser.add_argument('--train_ratio', type=float, default=0.1)
+    parser.add_argument('-j', '--num_workers', type=int, default=4)
+    parser.add_argument('--reID', action='store_true')
+    args = parser.parse_args()
+    root = '../Data/'
     transform = T.Compose([
         T.ToTensor(),]
         #T.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),]
     )
-    train_ratio = 0.9 
-    reID = False
-    intrinsic_camera_matrix_filenames =['intr_CVLab1.xml', 'intr_CVLab2.xml', 'intr_CVLab3.xml', 'intr_CVLab4.xml',
-                                     'intr_IDIAP1.xml', 'intr_IDIAP2.xml', 'intr_IDIAP3.xml']
-    extrinsic_camera_matrix_filenames = ['extr_CVLab1.xml', 'extr_CVLab2.xml', 'extr_CVLab3.xml', 'extr_CVLab4.xml',
-                                     'extr_IDIAP1.xml', 'extr_IDIAP2.xml', 'extr_IDIAP3.xml']
-    is_train = True #False
-    force_download=False
-    dataset = PedestrianDataset(root, num_cam, num_frame, img_shape, world_grid_shape, img_reduce, 
-                 grid_reduce, transform, train_ratio, reID, intrinsic_camera_matrix_filenames, 
-                 extrinsic_camera_matrix_filenames, is_train, force_download)
+    #train_ratio = 0.9 
+    #reID = False
+    #intrinsic_camera_matrix_filenames =['intr_CVLab1.xml', 'intr_CVLab2.xml', 'intr_CVLab3.xml', 'intr_CVLab4.xml',
+    #                                'intr_IDIAP1.xml', 'intr_IDIAP2.xml', 'intr_IDIAP3.xml']
+    #extrinsic_camera_matrix_filenames = ['extr_CVLab1.xml', 'extr_CVLab2.xml', 'extr_CVLab3.xml', 'extr_CVLab4.xml',
+    #                                 'extr_IDIAP1.xml', 'extr_IDIAP2.xml', 'extr_IDIAP3.xml']
+    train_set = build_dataset(isTrain=True, args=args)
+    test_set = build_dataset(isTrain=False, args=args)
 
-    print(dataset)
-    from torch.utils.data import DataLoader 
+    train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers,
+                              pin_memory=True)
+    test_loader = DataLoader(test_set, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers,
+                             pin_memory=True)
 
-    dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
-    print(len(dataloader))
 
-    
-    for i, (imgs, proj_mats, frame, map_gt) in enumerate(dataloader):
+
+    '''
+    for i, (imgs, proj_mats, gt, frame) in enumerate(train_loader):
     
         #exit()
         # viz 
-        if i == 100: 
-            print(i)
-            print(imgs.shape)
-            print(proj_mats)
-            print(frame)
-            print(map_gt.shape)
-            for j in range(imgs[0].shape[0]): 
-                pil_img = T.ToPILImage()(imgs[0][j].squeeze())
-                pil_img.save("image"+str(j)+"_"+str(frame)+".png")
-            exit()
+        #if i == 5: 
+            #print(i) verified 
+            #print(imgs.shape) verified  [1, 7, 3, 1080, 1920]
+            #print(proj_mats) # verified
+            #exit()
+            #print(gt) # verified 
+            #print(frame) # verified 
+        
+            # verified 
+            #for j in range(imgs[0].shape[0]): 
+            #    pil_img = T.ToPILImage()(imgs[0][j].squeeze())
+            #    pil_img.save("image"+str(j)+"_"+str(frame)+".png")
+            #exit()
         
         # Viz GT onto img 
-        map_gt = map_gt[0].numpy()
+        
+        # verified
+        map_gt = gt['boxes'][0].numpy()
+        map_gt[:, 0] = map_gt[:, 0] * 480  
+        map_gt[:, 1] = map_gt[:, 1] * 1440  
+
+
         proj_mats = proj_mats[0][0].numpy()
         world_grid = map_gt
-        world_grid = np.concatenate([world_grid, np.ones([wworld_grid.shape[0]]).reshape(-1, 1)], axis=1)
-        image_coord = proj_mats @ world_coord.T
+        world_grid = np.concatenate([world_grid, np.ones([world_grid.shape[0]]).reshape(-1, 1)], axis=1)
+
+        image_coord = proj_mats @ world_grid.T
         img_coord = image_coord[:2, :] / image_coord[2, :]
         img = T.ToPILImage()(imgs[0][0].squeeze())
         import matplotlib.pyplot as plt
@@ -296,12 +312,9 @@ def test():
             cv2.circle(img, tuple(point.astype(int)), 5, (0, 255, 0), -1)
         img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
         img.save('img_grid_visualize_test.png')
-
-        exit()
         
-        pass
-
+        exit()
+    '''
+        
+    
 #test()
-
-
-'''
