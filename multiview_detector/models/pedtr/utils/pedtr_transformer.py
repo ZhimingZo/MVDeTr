@@ -173,17 +173,22 @@ class PedTRTransformerDecoderLayer(nn.Module):
     def feature_sampling(self, ground_coordinates, proj_mat, img_feats):
         self.num_cams=7
         self.org_img_res = [1080, 1920]
+        self.grid_shape = [480, 1440]
         self.num_query = 100
         assert len(proj_mat.shape) == 4 and proj_mat.shape[1] == self.num_cams
 
         reference_points_ground = ground_coordinates.clone()
-        ground_coordinates = torch.cat((ground_coordinates, torch.ones_like(ground_coordinates[..., :1])), dim=-1)
+        reference_points = ground_coordinates.clone() 
+        reference_points[..., 0] = reference_points[..., 0] * self.grid_shape[0]
+        reference_points[..., 1] = reference_points[..., 1] * self.grid_shape[1]
+        reference_points  = torch.cat((reference_points , torch.ones_like(reference_points [..., :1])), dim=-1)
         
-        img_coord =  proj_mat[0].float() @ ground_coordinates.T # shape torch.Size([7, 3, 100])
+
+        img_coord =  proj_mat[0].float() @ reference_points.T # shape torch.Size([7, 3, 100])
         img_coord = torch.transpose(img_coord, 1, 2)
         
         #reference_points_ground = ground_coordinates.clone()
-        reference_points_cam = img_coord
+        reference_points_cam = img_coord 
 
         eps = 1e-5
         mask = (reference_points_cam[..., 2:3] > eps)
