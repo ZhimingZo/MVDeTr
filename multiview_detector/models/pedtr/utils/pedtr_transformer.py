@@ -66,7 +66,7 @@ class PedTRTransformerDecoder(nn.Module):
         intermediate_reference_points = []
         for idx, decoder_layer in enumerate(self.layers): 
             reference_points_input = reference_points 
-            output = decoder_layer(img_feats=img_feats, proj_mat=proj_mat, query=output, query_pos=query_pos, reference_points=reference_points) 
+            output = decoder_layer(img_feats=img_feats, proj_mat=proj_mat, query=output, query_pos=query_pos, reference_points=reference_points_input) 
             if reg_branches is not None:
                 tmp = reg_branches[idx](output) # torch.Size([1, 100, 2])
                 
@@ -80,16 +80,14 @@ class PedTRTransformerDecoder(nn.Module):
 
                 reference_points = new_reference_points#.detach()
 
-            #output = output.permute(1, 0, 2) 
-            #print(output.shape)
-            #exit()
             if self.return_intermediate:
                 intermediate.append(output)
                 intermediate_reference_points.append(reference_points)
-        if self.return_intermediate:
+        if self.return_intermediate:    
             return torch.stack(intermediate), torch.stack(
                 intermediate_reference_points)
-
+        
+        #print(output.shape, reference_points.shape) #torch.Size([100, 512]) torch.Size([100, 2])
         return output, reference_points
     
 
@@ -132,9 +130,10 @@ class PedTRTransformerDecoderLayer(nn.Module):
         self.num_heads=4
         inp_residual = query 
         if query_pos is not None: 
-            query = query + query_pos
+            query = query + query_pos  # torch.Size([100, 512])
             #print(query.shape, query_pos.shape)
         # query multi-head attention 
+         
         query, _ = self.multiheadattn_query(query, query, query) 
         query = self.layerNorm1(query) # print(query.shape)    
 

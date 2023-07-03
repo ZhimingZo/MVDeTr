@@ -193,8 +193,8 @@ def get_worldcoord_from_worldgrid(worldgrid):
 
 def build_dataset(isTrain, args):
     transform = T.Compose([
-        T.ToTensor(),
-        T.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),]
+        T.ToTensor(),]
+        #T.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),]
     )
     if 'Wildtrack' in args.dataset:
         dataset_root=os.path.join(args.root, "Wildtrack/")
@@ -250,8 +250,8 @@ def test():
     args = parser.parse_args()
     root = '../Data/'
     transform = T.Compose([
-        T.ToTensor(),]
-        #T.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),]
+        T.ToTensor(),
+        T.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),]
     )
     #train_ratio = 0.9 
     #reID = False

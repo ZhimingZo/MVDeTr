@@ -59,6 +59,8 @@ class PedTrainer(BaseTrainer):
                 # supervised
                 outputs  = self.model(img=imgs, proj_mat=proj_mats)
                  
+                
+
                 loss_dict = self.criterion(outputs, targets)
                 weight_dict = self.criterion.weight_dict
                 #print(loss_dict.keys())
@@ -118,6 +120,7 @@ class PedTrainer(BaseTrainer):
                 #score, index = probas.max(-1)#.values #> 0.7 #
                 #print(probas)
                 #exit()
+                
                 index = torch.nonzero((probas[..., 1] > 0.7).to(torch.int32)).flatten()
                 score = probas[index, 0] 
                 #print(index.shape, score.shape)

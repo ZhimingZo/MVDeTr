@@ -14,7 +14,8 @@ from torch.cuda.amp import GradScaler
 from torch import optim
 from torch.utils.data import DataLoader
 from multiview_detector.datasets_pedtr.ped_dataset import build_dataset
-from multiview_detector.models.pedtr.PedTransformer import build_model
+#from multiview_detector.models.pedtr.PedTransformer import build_model
+from multiview_detector.models.pedtr.detectors.pedtr import build_model
 from multiview_detector.utils.logger import Logger
 from multiview_detector.utils.draw_curve import draw_curve
 from multiview_detector.utils.str2bool import str2bool

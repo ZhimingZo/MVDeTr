@@ -58,14 +58,15 @@ class PedTRHead(nn.Module):
         #inter_query = inter_query.permute(1, 0, 2)
         # use the output from inter query for coordinate and class regression
          
-        reference = inter_references_point 
-        reference = inverse_sigmoid(inter_references_point)
-        temp = self.reg_branches[-1](inter_query) 
-        temp = temp + reference 
-        temp = temp.sigmoid()
+        #reference = inter_references_point 
+        #reference = inverse_sigmoid(inter_references_point)
+        #temp = self.reg_branches[-1](inter_query) 
+        #temp = temp + reference 
+        #temp = temp.sigmoid()
         
-        outputs_class = self.cls_branches(inter_query)
-        outputs_coords = temp
+        outputs_class = self.cls_branches(inter_query).unsqueeze(dim=0)
+        outputs_coords = inter_references_point.unsqueeze(dim=0)#temp
+        
         out = {'pred_logits': outputs_class, 'pred_boxes': outputs_coords}
         return out
     
