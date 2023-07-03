@@ -55,18 +55,20 @@ class PedTRHead(nn.Module):
     def forward(self, img_features, proj_mats, query, query_pos):         
         
         inter_query, init_reference_point, inter_references_point = self.transformer(img_features=img_features, proj_mat=proj_mats, query=query, query_pos=query_pos, reg_branches=self.reg_branches)  
-        #inter_query = inter_query.permute(1, 0, 2)
-        # use the output from inter query for coordinate and class regression
+        #print(inter_query.shape, init_reference_point.shape, inter_references_point.shape) # torch.Size([100, 512]) torch.Size([100, 2]) torch.Size([100, 2])
          
+        #inter_query = inter_query.permute(1, 0, 2)
+        # use the output from inter query for coordinate and class regression 
         #reference = inter_references_point 
         #reference = inverse_sigmoid(inter_references_point)
         #temp = self.reg_branches[-1](inter_query) 
         #temp = temp + reference 
         #temp = temp.sigmoid()
         
-        outputs_class = self.cls_branches(inter_query).unsqueeze(dim=0)
-        outputs_coords = inter_references_point.unsqueeze(dim=0)#temp
+        outputs_class = self.cls_branches(inter_query).unsqueeze(dim=0) # torch.Size([1, 100, 3])
+        outputs_coords = inter_references_point.unsqueeze(dim=0)# torch.Size([1, 100, 2])
         
+         
         out = {'pred_logits': outputs_class, 'pred_boxes': outputs_coords}
         return out
     

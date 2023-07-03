@@ -191,7 +191,7 @@ def test():
     weight_dict = {'loss_ce': 1, 'loss_bbox':  5}
     #losses = ['labels', 'boxes']
     losses = ['labels', 'boxes']
-    criterion = SetCriterion(num_classes=1, matcher=matcher, weight_dict=weight_dict,
+    criterion = SetCriterion(num_classes=2, matcher=matcher, weight_dict=weight_dict,
                              eos_coef=0.1, losses=losses)
     print(criterion)
 

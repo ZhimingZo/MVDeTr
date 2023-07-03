@@ -95,15 +95,15 @@ def main(args):
     #print(model)
     #print(criterion)
     #exit()
-    param_dicts = [{"params": [p for n, p in model.named_parameters() if 'img_backbone' not in n and p.requires_grad],},
+    param_dicts = [{"params": [p for n, p in model.named_parameters() if 'img_backbone' not in n and p.requires_grad], "lr": args.lr},
                    {"params": [p for n, p in model.named_parameters() if 'img_backbone' in n and p.requires_grad],
                     "lr": args.lr * args.base_lr_ratio, }, ]
     
-    optimizer = optim.Adam(param_dicts, lr=args.lr, weight_decay=args.weight_decay)
+    optimizer = optim.AdamW(param_dicts, weight_decay=args.weight_decay)
      
     #scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=args.lr, steps_per_epoch=len(train_loader),
     #                                                epochs=args.epochs)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 200)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 100)
 
     trainer = PedTrainer(model=model, optimizer=optimizer, criterion=criterion, logdir=logdir, dataloader_train=train_loader, dataloader_test=test_loader, scheduler=scheduler, args=args)
 
@@ -143,7 +143,7 @@ if __name__ == '__main__':
     parser.add_argument('-j', '--num_workers', type=int, default=4)
     parser.add_argument('--dropcam', type=float, default=0) # org 0 
     parser.add_argument('--epochs', type=int, default=500, help='number of epochs to train')
-    parser.add_argument('--lr', type=float, default=1e-4, help='learning rate')
+    parser.add_argument('--lr', type=float, default=1e-4, help='learning rate') 
     #parser.add_argument('--lr', type=float, default=1e-3, help='learning rate')
     parser.add_argument('--base_lr_ratio', type=float, default=0.1)
     parser.add_argument('--weight_decay', type=float, default=1e-4)
@@ -172,7 +172,7 @@ if __name__ == '__main__':
 
     # Model 
     #parser.add_argument('--arch', type=str, default='resnet18', choices=['vgg11', 'resnet18', 'mobilenet'])
-    parser.add_argument('--dropout', type=float, default=0.0)
+    parser.add_argument('--dropout', type=float, default=0.1)
     #parser.add_argument('--bottleneck_dim', type=int, default=128)
     parser.add_argument('--embed_dims', type=int, default=512)
 
@@ -180,13 +180,13 @@ if __name__ == '__main__':
     parser.add_argument('--set_cost_class', default=1, type=float,
                         help="Class coefficient in the matching cost")
     parser.add_argument('--set_cost_bbox', default=5, type=float,
-                        help="L1 box coefficient in the matching cost")
+                        help="L1 box coefficient in the matching cost") 
     
     # Loss coefficients 
     parser.add_argument('--bbox_loss_coef', default=5, type=float)
-    parser.add_argument('--ce_loss_coef', default=1, type=float)
-    parser.add_argument('--eos_coef', default=0.1, type=float,
-                        help="Relative classification weight of the no-object class")
+    parser.add_argument('--ce_loss_coef', default=1, type=float) # org_1
+    parser.add_argument('--eos_coef', default=0.001, type=float, 
+                        help="Relative classification weight of the no-object class") # org_0.1
 
     args = parser.parse_args()
      

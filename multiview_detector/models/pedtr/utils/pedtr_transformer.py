@@ -128,13 +128,14 @@ class PedTRTransformerDecoderLayer(nn.Module):
         self.dropout = nn.Dropout(0.1)
     def forward(self, img_feats, proj_mat, query, query_pos, reference_points):
         self.num_heads=4
-        inp_residual = query 
-        if query_pos is not None: 
-            query = query + query_pos  # torch.Size([100, 512])
+        #inp_residual = query 
+        #if query_pos is not None: 
+        #    query = query + query_pos  # torch.Size([100, 512])
             #print(query.shape, query_pos.shape)
         # query multi-head attention 
          
-        query, _ = self.multiheadattn_query(query, query, query) 
+        query_out, _ = self.multiheadattn_query(query, query, query)
+        query = self.dropout(query_out) + query
         query = self.layerNorm1(query) # print(query.shape)    
 
 
@@ -149,22 +150,22 @@ class PedTRTransformerDecoderLayer(nn.Module):
         mask = mask.repeat(self.num_heads, 1, 1).repeat(1, self.num_cams, 1)  # 400, 7, 7
 
         
-        output = self.img_feature_transformer(x=output, mask=mask) # torch.Size([100, 7, 512])
+        #output = self.img_feature_transformer(x=output, mask=mask) # torch.Size([100, 7, 512])
         output = torch.mean(output, dim=1, keepdim=False) # torch.Size([100, 1, 512])
         #output = torch.permute(output, (1, 0, 2)) # torch.Size([1, 100, 512])
         output = self.output_proj(output) # torch.Size([1, 100, 512])
          
-        pos_feat = self.position_encoder(inverse_sigmoid(reference_points_3d))
+        #pos_feat = self.position_encoder(inverse_sigmoid(reference_points_3d))
          
         
         #.permute(1, 0, 2)
         #print(pos_feat.shape)
         #exit()
-        query = self.dropout(output) + inp_residual + pos_feat
+        query = self.dropout(output) + query #inp_residual #+ pos_feat
         query = self.layerNorm2(query)
 
         # ffn projection 
-        query = self.ffns_query(query)
+        query = self.dropout(self.ffns_query(query)) + query
         query = self.layerNorm3(query)
         #print(query.shape)
          
@@ -254,13 +255,13 @@ def test():
     
     
     # test extracted img feature for MultiHeadAttn 
-    '''
+    
     imgs = torch.rand((100, 7, 512))
     mask = torch.rand((400, 7, 7))
     ImgFeatureTransformerModel = ImgFeatureTransformer(dim=512, depth=3, heads=4, mlp_dim=512, dropout=0.1)
     print(ImgFeatureTransformerModel)
     print(ImgFeatureTransformerModel(imgs, mask=mask).shape) # [100, 512]
-    '''
+    
 
     # decoder layer 
     
@@ -277,7 +278,7 @@ def test():
     '''
     
     # decoder 
-    #'''
+    '''
     num_decoder_layer = 6
     embed_dims=512
     out_dims=2 
@@ -304,5 +305,5 @@ def test():
     PedTRTransformerModel = PedTRTransformer()
     A, B, C = PedTRTransformerModel(img_features=img_feats, proj_mat=proj_mat, query=query, query_pos=query_pos, reg_branches=reg_branches)
     print(A.shape, B.shape, C.shape)
-    #'''
-#test()
+    '''
+test()

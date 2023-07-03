@@ -58,8 +58,6 @@ class PedTrainer(BaseTrainer):
 
                 # supervised
                 outputs  = self.model(img=imgs, proj_mat=proj_mats)
-                 
-                
 
                 loss_dict = self.criterion(outputs, targets)
                 weight_dict = self.criterion.weight_dict
@@ -92,7 +90,7 @@ class PedTrainer(BaseTrainer):
                 #    print(f'Train Epoch: {epoch}, Batch:{(batch_idx + 1)}, loss: {losses / (batch_idx + 1):.6f}, '
                 #        f'Time: {t_epoch:.1f}')
                 #print("hello")
-            if epoch % 50 == 0: 
+            if epoch % 2 == 0: 
                 res_fpath = os.path.join(self.logdir, "pred_" + str(epoch)+".txt")
                 self.test(res_fpath=res_fpath, visualize=False)
                 self.model.train()
@@ -106,7 +104,7 @@ class PedTrainer(BaseTrainer):
         res_list = []
         t0 = time.time()
         print("Evaluating...")
-        for batch_idx, (imgs, proj_mats, targets, frame) in enumerate(self.dataloader_test):
+        for batch_idx, (imgs, proj_mats, targets, frame) in enumerate(self.dataloader_train):
             imgs = imgs.to(self.device)
             proj_mats=proj_mats.to(self.device)
             targets = [{k: v.to(self.device).squeeze() for k, v in targets.items()}]
