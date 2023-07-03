@@ -148,7 +148,7 @@ class PedTransformer(nn.Module):
         self.org_img_res = [1080, 1920]
         self.device = args.device
        
-        self.query_gen = Query_genrator(num_query=self.num_query, channels=self.embed_dims)
+        self.query_gen = Query_genrator(num_query=self.num_query, dims=self.embed_dims)
         
         self.img_backbone  = nn.Sequential(*list(resnet18(pretrained=True,
                                                      replace_stride_with_dilation=[False, True, True]).children())[:-2])
