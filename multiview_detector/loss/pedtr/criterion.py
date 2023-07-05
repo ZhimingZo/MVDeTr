@@ -54,8 +54,6 @@ class SetCriterion(nn.Module):
                                     dtype=torch.int64, device=src_logits.device)
         target_classes[idx] = target_classes_o  
         
-         
-
         loss_ce = F.cross_entropy(src_logits.transpose(1, 2), target_classes, self.empty_weight)
         losses = {'loss_ce': loss_ce}
         
@@ -74,17 +72,18 @@ class SetCriterion(nn.Module):
         Returns:
             torch.Tensor: cls_cost value with weight
         """
+
         tgt_ids = torch.cat([v["labels"] for v in targets])
-        #print(tgt_ids.shape)
+        #print(tgt_ids.shape, tgt_ids)
         cls_pred = cls_pred['pred_logits'].sigmoid()
-        #print(cls_pred.shape)
+        #print(cls_pred.shape, cls_pred)
         neg_cost = -(1 - cls_pred + self.eps).log() * (
             1 - self.alpha) * cls_pred.pow(self.gamma)
         pos_cost = -(cls_pred + self.eps).log() * self.alpha * (
             1 - cls_pred).pow(self.gamma)
 
         cls_cost = pos_cost[:, tgt_ids] - neg_cost[:, tgt_ids]
-        #print(cls_cost.shape)
+    
         losses = {'loss_ce': cls_cost.mean()}
         return losses
 

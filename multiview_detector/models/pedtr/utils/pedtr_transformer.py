@@ -37,7 +37,38 @@ class PedTRTransformer(nn.Module):
 
         reference_points_init = self.referece_points_init(query).sigmoid()
 
+        # visulizaton here 
+        '''
+        import numpy as np
+        import cv2 
+        reference_points_init_draw = reference_points_init.cpu().numpy()
+        reference_points_init_draw[:, 0] *= 480 
+        reference_points_init_draw[:, 1] *= 1440 
+        print(reference_points_init_draw.shape)
+        map_gt = np.zeros((480, 1440, 3), dtype=np.uint8)
+        for point in reference_points_init_draw:
+            #print(point[0])
+            cv2.circle(map_gt, (int(point[1]), int(point[0])), 15, (0, 0, 255), -1)
+        #cv2.imshow("reference_init", map_gt)
+        #cv2.imwrite("epoch_10_init_ref.png", map_gt)
+        '''
+        #exit()
         inter_query, inter_references_point = self.decoder(img_feats=img_features, proj_mat=proj_mat, query=query, query_pos=query_pos, reference_points=reference_points_init, reg_branches=reg_branches)  
+
+        # viz for output coord
+        '''
+        reference_points_inter_draw = inter_references_point.cpu().numpy()
+        reference_points_inter_draw[:, 0] *= 480 
+        reference_points_inter_draw[:, 1] *= 1440 
+        print(reference_points_inter_draw.shape)
+        
+        for point in reference_points_inter_draw:
+            #print(point[0])
+            cv2.circle(map_gt, (int(point[1]), int(point[0])), 15, (255, 255, 255), -1)
+        #cv2.imshow("reference_init", map_gt)
+        cv2.imwrite("epoch_10_inter_ref_train_.png", map_gt)
+        exit(0)
+        '''
 
         return  inter_query, reference_points_init, inter_references_point
     
@@ -103,10 +134,10 @@ class PedTRTransformerDecoderLayer(nn.Module):
 
         # feedforward
         self.ffns_query = nn.Sequential(
-            nn.Linear(embed_dims, embed_dims*2), 
+            nn.Linear(embed_dims, embed_dims), 
             nn.ReLU(), 
             nn.Dropout(p=0.1), 
-            nn.Linear(embed_dims*2, embed_dims), 
+            nn.Linear(embed_dims, embed_dims), 
             nn.Dropout(p=0.1), 
         )
         
@@ -184,20 +215,19 @@ class PedTRTransformerDecoderLayer(nn.Module):
         reference_points[..., 1] = reference_points[..., 1] * self.grid_shape[1]
         reference_points  = torch.cat((reference_points , torch.ones_like(reference_points [..., :1])), dim=-1)
         
-
         img_coord =  proj_mat[0].float() @ reference_points.T # shape torch.Size([7, 3, 100])
-        img_coord = torch.transpose(img_coord, 1, 2)
+       
+        img_coord = torch.transpose(img_coord, 1, 2) #  shape torch.Size([7, 100, 3])
         
-        #reference_points_ground = ground_coordinates.clone()
         reference_points_cam = img_coord 
 
         eps = 1e-5
         mask = (reference_points_cam[..., 2:3] > eps)
         reference_points_cam = reference_points_cam[..., 0:2] / torch.maximum(
         reference_points_cam[..., 2:3], torch.ones_like(reference_points_cam[..., 2:3])*eps) #  [x, y] in image space 
+
         reference_points_cam[..., 0] = reference_points_cam[..., 0] / self.org_img_res[1] 
         reference_points_cam[..., 1] = reference_points_cam[..., 1] / self.org_img_res[0]
-
         reference_points_cam = (reference_points_cam - 0.5) * 2
         mask = (mask & (reference_points_cam[..., 0:1] > -1.0) 
                  & (reference_points_cam[..., 0:1] < 1.0) 
@@ -210,13 +240,13 @@ class PedTRTransformerDecoderLayer(nn.Module):
         # feature sampling 
         BN, C, H, W = img_feats.size()
         reference_points_cam_lvl = reference_points_cam.view(BN, self.num_query, 1, 2)
-        sampled_feat = F.grid_sample(img_feats, reference_points_cam_lvl, align_corners=False)
-        sampled_feat = sampled_feat.view(1, C, self.num_query, self.num_cams, 1) # 1, 512, 200, N, 1
-         
+        sampled_feat = F.grid_sample(img_feats, reference_points_cam_lvl, align_corners=False) # torch.Size([7, 512, 100, 1])
+        sampled_feat = sampled_feat.permute(2, 0, 1, 3)
+        #sampled_feat = sampled_feat.view(1, self.num_cams, C, self.num_query) # 1, 512, 200, N, 1
         return reference_points_ground, sampled_feat, mask
     
 class FeedForward(nn.Module):
-    def __init__(self, dim, hidden_dim, output_dim, dropout=0.):
+    def __init__(self, dim, hidden_dim, output_dim, dropout=0.1):
         super().__init__()
         self.mlp = nn.Sequential(
             nn.Linear(dim, hidden_dim),
@@ -306,4 +336,4 @@ def test():
     A, B, C = PedTRTransformerModel(img_features=img_feats, proj_mat=proj_mat, query=query, query_pos=query_pos, reg_branches=reg_branches)
     print(A.shape, B.shape, C.shape)
     '''
-test()
+#test()

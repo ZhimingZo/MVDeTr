@@ -25,9 +25,9 @@ def ray_encoded_img(img, ray):
     return ray_encoded_img
 
 
-class Query_genrator(nn.Module):
+class Query_generator(nn.Module):
     def __init__(self, img_backbone=None, num_query=None, dims=None, category="naive"):
-        super(Query_genrator, self).__init__()
+        super(Query_generator, self).__init__()
         self.img_backbone = img_backbone
         self.category = category 
         self.query_embedding = nn.Parameter(torch.randn(num_query, dims))
@@ -69,3 +69,7 @@ class Query_genrator(nn.Module):
             return query
             '''
             return self.query_embedding, self.pos_embedding
+
+
+
+#print(list(Query_generator(num_query=100, dims=512).parameters()))

@@ -1,6 +1,6 @@
 import torch 
 import torch.nn as nn 
-from multiview_detector.models.pedtr.utils.query_generator import Query_genrator
+from multiview_detector.models.pedtr.utils.query_generator import Query_generator
 from multiview_detector.models.pedtr.backbones.resnet import resnet18
 from multiview_detector.models.pedtr.dense_heads.pedtr_head import PedTRHead
 from multiview_detector.loss.pedtr.matcher import * 
@@ -12,7 +12,7 @@ class PedTR(nn.Module):
 
         self.backbone = nn.Sequential(*list(resnet18(pretrained=True,
                                                      replace_stride_with_dilation=[False, True, True]).children())[:-2])
-        self.query_generator = Query_genrator(num_query=100, dims=512)
+        self.query_generator = Query_generator(num_query=100, dims=512)
   
         self.detect_head = PedTRHead(num_decoder_layer=6)
 

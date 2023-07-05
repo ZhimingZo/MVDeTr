@@ -95,8 +95,8 @@ def main(args):
     #print(model)
     #print(criterion)
     #exit()
-    param_dicts = [{"params": [p for n, p in model.named_parameters() if 'img_backbone' not in n and p.requires_grad], "lr": args.lr},
-                   {"params": [p for n, p in model.named_parameters() if 'img_backbone' in n and p.requires_grad],
+    param_dicts = [{"params": [p for n, p in model.named_parameters() if 'backbone' not in n and p.requires_grad], "lr": args.lr},
+                   {"params": [p for n, p in model.named_parameters() if 'backbone' in n and p.requires_grad],
                     "lr": args.lr * args.base_lr_ratio, }, ]
     
     optimizer = optim.AdamW(param_dicts, weight_decay=args.weight_decay)
@@ -128,7 +128,7 @@ def main(args):
             torch.save(model.state_dict(), os.path.join(logdir, 'MultiviewDetector.pth'))
     else:
         #model.load_state_dict(torch.load(f'logs_pretrained/{args.dataset}/{args.resume}/MultiviewDetector.pth'))
-        model.load_state_dict(torch.load(f'logs/{args.dataset}/{args.resume}/MultiviewDetector.pth'))
+        model.load_state_dict(torch.load(f'logs/{args.dataset}/{args.resume}/MultiviewDetector_10.pth'))
         #model.load_state_dict(torch.load(logdir))
         model.eval()
     print('Test loaded model...')
@@ -142,14 +142,14 @@ if __name__ == '__main__':
     parser.add_argument('--id_ratio', type=float, default=0)
     parser.add_argument('-j', '--num_workers', type=int, default=4)
     parser.add_argument('--dropcam', type=float, default=0) # org 0 
-    parser.add_argument('--epochs', type=int, default=500, help='number of epochs to train')
+    parser.add_argument('--epochs', type=int, default=101, help='number of epochs to train')
     parser.add_argument('--lr', type=float, default=1e-4, help='learning rate') 
     #parser.add_argument('--lr', type=float, default=1e-3, help='learning rate')
     parser.add_argument('--base_lr_ratio', type=float, default=0.1)
     parser.add_argument('--weight_decay', type=float, default=1e-4)
     parser.add_argument('--resume', type=str, default=None)
     parser.add_argument('--visualize', action='store_true')
-    parser.add_argument('--seed', type=int, default=2021, help='random seed')
+    parser.add_argument('--seed', type=int, default=2021, help='random seed') # org 2021
     parser.add_argument('--deterministic', type=str2bool, default=False)
     parser.add_argument('--log_interval', type=int, default=100)
     parser.add_argument('--device', default='cuda',
@@ -166,7 +166,7 @@ if __name__ == '__main__':
     parser.add_argument('--img_reduce', type=int, default=1)
     parser.add_argument('--num_cams', type=int, default=7)   # 6 for MultiviewX
     parser.add_argument('--num_frames', type=int, default=2000) # 400 for MultiviewXgit 
-    parser.add_argument('--train_ratio', type=float, default=0.9)
+    parser.add_argument('--train_ratio', type=float, default=0.01)
 
     parser.add_argument('--reID', action='store_true')
 
@@ -185,7 +185,7 @@ if __name__ == '__main__':
     # Loss coefficients 
     parser.add_argument('--bbox_loss_coef', default=5, type=float)
     parser.add_argument('--ce_loss_coef', default=1, type=float) # org_1
-    parser.add_argument('--eos_coef', default=0.001, type=float, 
+    parser.add_argument('--eos_coef', default=0.1, type=float, 
                         help="Relative classification weight of the no-object class") # org_0.1
 
     args = parser.parse_args()
