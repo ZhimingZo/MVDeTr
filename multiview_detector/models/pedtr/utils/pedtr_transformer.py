@@ -19,19 +19,17 @@ def inverse_sigmoid(x, eps=1e-5):
     x2 = (1 - x).clamp(min=eps)
     return torch.log(x1 / x2)
 
-
-
 # PedTRTransformer consists of a decoder layer  
 # receive updated query from  decoder  
 # output: coord and cls results to pedtr_head 
 
 
 class PedTRTransformer(nn.Module): 
-    def __init__(self, embed_dims=512, out_dims=2, out_dims_class=3, num_decoder_layer=6):
+    def __init__(self, args):
         super(PedTRTransformer, self).__init__() 
-
-        self.decoder = PedTRTransformerDecoder(num_decoder_layer=6)
-        self.referece_points_init  = nn.Linear(embed_dims, 2)
+        self.embed_dims = args.embed_dims
+        self.decoder = PedTRTransformerDecoder(args)
+        self.referece_points_init  = nn.Linear(self.embed_dims, 2)
     
     def forward(self, img_features, proj_mat, query, query_pos, reg_branches): 
 
@@ -53,7 +51,8 @@ class PedTRTransformer(nn.Module):
         #cv2.imwrite("epoch_10_init_ref.png", map_gt)
         '''
         #exit()
-        inter_query, inter_references_point = self.decoder(img_feats=img_features, proj_mat=proj_mat, query=query, query_pos=query_pos, reference_points=reference_points_init, reg_branches=reg_branches)  
+        inter_queries, inter_references_points = self.decoder(img_feats=img_features, proj_mat=proj_mat, query=query, query_pos=query_pos, \
+                                                              reference_points=reference_points_init, reg_branches=reg_branches)  
 
         # viz for output coord
         '''
@@ -70,7 +69,7 @@ class PedTRTransformer(nn.Module):
         exit(0)
         '''
 
-        return  inter_query, reference_points_init, inter_references_point
+        return  inter_queries, reference_points_init, inter_references_points
     
 
 # PedTRTransformerDecoder consists of n layers decoder layer 
@@ -85,11 +84,12 @@ class PedTRTransformer(nn.Module):
 # step6: update query 
 
 class PedTRTransformerDecoder(nn.Module): 
-    def __init__(self, num_decoder_layer=6, args=None, return_intermediate=False):
+    def __init__(self, args=None, return_intermediate=True):
         super(PedTRTransformerDecoder, self).__init__() 
         self.return_intermediate = return_intermediate
-        self.decoder_layer = PedTRTransformerDecoderLayer() 
-        self.layers = nn.ModuleList(self.decoder_layer for i in range(num_decoder_layer))  
+        self.num_decoder_layer = args.num_decoder_layer # 6 
+        self.decoder_layer = PedTRTransformerDecoderLayer(args) 
+        self.layers = nn.ModuleList(self.decoder_layer for i in range(self.num_decoder_layer))  
 
     def forward(self, img_feats, proj_mat, query, query_pos, reference_points, reg_branches=None):    
         output = query 
@@ -99,76 +99,82 @@ class PedTRTransformerDecoder(nn.Module):
             reference_points_input = reference_points 
             output = decoder_layer(img_feats=img_feats, proj_mat=proj_mat, query=output, query_pos=query_pos, reference_points=reference_points_input) 
             if reg_branches is not None:
-                tmp = reg_branches[idx](output) # torch.Size([1, 100, 2])
+                tmp = reg_branches[idx](output)  
                 
                 assert reference_points.shape[-1] == 2
-
+               
                 new_reference_points = torch.zeros_like(reference_points)
                 new_reference_points[..., :2] = tmp[
                     ..., :2] + inverse_sigmoid(reference_points[..., :2])
     
                 new_reference_points = new_reference_points.sigmoid()
 
-                reference_points = new_reference_points#.detach()
+                reference_points = new_reference_points.detach()
 
             if self.return_intermediate:
                 intermediate.append(output)
                 intermediate_reference_points.append(reference_points)
-        if self.return_intermediate:    
+
+        if self.return_intermediate: 
             return torch.stack(intermediate), torch.stack(
                 intermediate_reference_points)
-        
-        #print(output.shape, reference_points.shape) #torch.Size([100, 512]) torch.Size([100, 2])
         return output, reference_points
     
 
 class PedTRTransformerDecoderLayer(nn.Module):
-    def __init__(self, embed_dims=512, args=None): 
+    def __init__(self, args=None): 
         super(PedTRTransformerDecoderLayer, self).__init__()
-
+        
+        self.embed_dims = args.embed_dims # 512 
+        self.dropout_ratio = args.dropout # 0.1 
+        self.num_heads = args.num_heads # 4 
+        self.num_cams = args.num_cams #7 
+        self.num_query = args.num_queries # 100
+        self.org_img_res = [1080, 1920]
+        self.grid_shape = [480, 1440]
         # MultiHeadAttn 
-        self.multiheadattn_query = nn.MultiheadAttention(embed_dims, num_heads=4)
+        self.multiheadattn_query = nn.MultiheadAttention(self.embed_dims, num_heads=self.num_heads)
 
         # image feature sampling 
-        self.img_feature_transformer = ImgFeatureTransformer(dim=embed_dims, depth=3, heads=4, mlp_dim=embed_dims, dropout=0.1)
+        self.img_feature_transformer = ImgFeatureTransformer(dim=self.embed_dims, depth=3, heads=self.num_heads, mlp_dim=self.embed_dims, dropout=self.dropout_ratio)
 
         # feedforward
         self.ffns_query = nn.Sequential(
-            nn.Linear(embed_dims, embed_dims), 
+            nn.Linear(self.embed_dims, self.embed_dims), 
             nn.ReLU(), 
-            nn.Dropout(p=0.1), 
-            nn.Linear(embed_dims, embed_dims), 
-            nn.Dropout(p=0.1), 
+            nn.Dropout(p=self.dropout_ratio), 
+            nn.Linear(self.embed_dims, self.embed_dims), 
+            nn.Dropout(p=self.dropout_ratio), 
         )
         
-        self.output_proj = nn.Linear(embed_dims, embed_dims)
+        self.output_proj = nn.Linear(self.embed_dims, self.embed_dims)
         # postional encoder 
         self.position_encoder = nn.Sequential(
-            nn.Linear(2, embed_dims),
-            nn.LayerNorm(embed_dims),
+            nn.Linear(2, self.embed_dims),
+            nn.LayerNorm(self.embed_dims),
             nn.ReLU(), 
-            nn.Linear(embed_dims, embed_dims),
-            nn.LayerNorm(embed_dims), 
+            nn.Linear(self.embed_dims, self.embed_dims),
+            nn.LayerNorm(self.embed_dims), 
             nn.ReLU() 
         )
 
         # Layer norm 
-        self.layerNorm1 = nn.LayerNorm(embed_dims)
-        self.layerNorm2 = nn.LayerNorm(embed_dims)
-        self.layerNorm3 = nn.LayerNorm(embed_dims)
-        self.dropout = nn.Dropout(0.1)
+        self.layerNorm1 = nn.LayerNorm(self.embed_dims)
+        self.layerNorm2 = nn.LayerNorm(self.embed_dims)
+        self.layerNorm3 = nn.LayerNorm(self.embed_dims)
+        self.dropout = nn.Dropout(self.dropout_ratio)
+
     def forward(self, img_feats, proj_mat, query, query_pos, reference_points):
-        self.num_heads=4
+        
         #inp_residual = query 
-        #if query_pos is not None: 
-        #    query = query + query_pos  # torch.Size([100, 512])
+        if query_pos is not None: 
+            query = query + query_pos  # torch.Size([100, 512])
             #print(query.shape, query_pos.shape)
         # query multi-head attention 
          
         query_out, _ = self.multiheadattn_query(query, query, query)
         query = self.dropout(query_out) + query
         query = self.layerNorm1(query) # print(query.shape)    
-
 
         # update query and extracted img feature attention 
         reference_points_3d, output, mask = self.feature_sampling(reference_points, proj_mat, img_feats)
@@ -181,17 +187,13 @@ class PedTRTransformerDecoderLayer(nn.Module):
         mask = mask.repeat(self.num_heads, 1, 1).repeat(1, self.num_cams, 1)  # 400, 7, 7
 
         
-        #output = self.img_feature_transformer(x=output, mask=mask) # torch.Size([100, 7, 512])
+        output = self.img_feature_transformer(x=output, mask=mask) # torch.Size([100, 7, 512])
         output = torch.mean(output, dim=1, keepdim=False) # torch.Size([100, 1, 512])
         #output = torch.permute(output, (1, 0, 2)) # torch.Size([1, 100, 512])
         output = self.output_proj(output) # torch.Size([1, 100, 512])
          
         #pos_feat = self.position_encoder(inverse_sigmoid(reference_points_3d))
          
-        
-        #.permute(1, 0, 2)
-        #print(pos_feat.shape)
-        #exit()
         query = self.dropout(output) + query #inp_residual #+ pos_feat
         query = self.layerNorm2(query)
 
@@ -203,16 +205,14 @@ class PedTRTransformerDecoderLayer(nn.Module):
         return query
     
     def feature_sampling(self, ground_coordinates, proj_mat, img_feats):
-        self.num_cams=7
-        self.org_img_res = [1080, 1920]
-        self.grid_shape = [480, 1440]
-        self.num_query = 100
+
+
         assert len(proj_mat.shape) == 4 and proj_mat.shape[1] == self.num_cams
 
         reference_points_ground = ground_coordinates.clone()
         reference_points = ground_coordinates.clone() 
-        reference_points[..., 0] = reference_points[..., 0] * self.grid_shape[0]
-        reference_points[..., 1] = reference_points[..., 1] * self.grid_shape[1]
+        reference_points[..., 0] = reference_points[..., 0] * self.grid_shape[0] #480
+        reference_points[..., 1] = reference_points[..., 1] * self.grid_shape[1] #1440
         reference_points  = torch.cat((reference_points , torch.ones_like(reference_points [..., :1])), dim=-1)
         
         img_coord =  proj_mat[0].float() @ reference_points.T # shape torch.Size([7, 3, 100])

@@ -14,7 +14,6 @@ from torch.cuda.amp import GradScaler
 from torch import optim
 from torch.utils.data import DataLoader
 from multiview_detector.datasets_pedtr.ped_dataset import build_dataset
-#from multiview_detector.models.pedtr.PedTransformer import build_model
 from multiview_detector.models.pedtr.detectors.pedtr import build_model
 from multiview_detector.utils.logger import Logger
 from multiview_detector.utils.draw_curve import draw_curve
@@ -83,53 +82,30 @@ def main(args):
                 shutil.copyfile(script, dst_file)
         sys.stdout = Logger(os.path.join(logdir, 'log.txt'), )
     else:
-        #logdir = f'logs_pretrained/{args.dataset}/{args.resume}'
         logdir = f'logs/{args.dataset}/{args.resume}'
-        #logdir = f'{args.resume}'
     print(logdir)
     print('Settings:')
     print(vars(args))
     # model
      
     model, criterion = build_model(args)
-    #print(model)
-    #print(criterion)
-    #exit()
     param_dicts = [{"params": [p for n, p in model.named_parameters() if 'backbone' not in n and p.requires_grad], "lr": args.lr},
                    {"params": [p for n, p in model.named_parameters() if 'backbone' in n and p.requires_grad],
                     "lr": args.lr * args.base_lr_ratio, }, ]
     
-    optimizer = optim.AdamW(param_dicts, weight_decay=args.weight_decay)
+    optimizer = optim.AdamW(param_dicts, lr=args.lr, weight_decay=args.weight_decay)
      
-    #scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=args.lr, steps_per_epoch=len(train_loader),
-    #                                                epochs=args.epochs)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 100)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 40)
 
     trainer = PedTrainer(model=model, optimizer=optimizer, criterion=criterion, logdir=logdir, dataloader_train=train_loader, dataloader_test=test_loader, scheduler=scheduler, args=args)
 
-    # draw curve
-    x_epoch = []
-    train_loss_s = []
-    test_loss_s = []
-    test_moda_s = []
     # learn
-    res_fpath = os.path.join(logdir, 'test.txt')
+    res_fpath = os.path.join(logdir, 'train_100.txt')
     if args.resume is None:
             train_loss = trainer.train()
-            #print('Testing...')
-            #test_loss, moda = trainer.test(epoch, test_loader, res_fpath, visualize=True)
-
-            # draw & save
-            #x_epoch.append(epoch)
-            ##train_loss_s.append(train_loss)
-            #test_loss_s.append(test_loss)
-            #test_moda_s.append(moda)
-            #draw_curve(os.path.join(logdir, 'learning_curve.jpg'), x_epoch, train_loss_s, test_loss_s, test_moda_s)
             torch.save(model.state_dict(), os.path.join(logdir, 'MultiviewDetector.pth'))
     else:
-        #model.load_state_dict(torch.load(f'logs_pretrained/{args.dataset}/{args.resume}/MultiviewDetector.pth'))
-        model.load_state_dict(torch.load(f'logs/{args.dataset}/{args.resume}/MultiviewDetector_10.pth'))
-        #model.load_state_dict(torch.load(logdir))
+        model.load_state_dict(torch.load(f'logs/{args.dataset}/{args.resume}/MultiviewDetector_100.pth'))
         model.eval()
     print('Test loaded model...')
     trainer.test(res_fpath, visualize=False)
@@ -142,9 +118,8 @@ if __name__ == '__main__':
     parser.add_argument('--id_ratio', type=float, default=0)
     parser.add_argument('-j', '--num_workers', type=int, default=4)
     parser.add_argument('--dropcam', type=float, default=0) # org 0 
-    parser.add_argument('--epochs', type=int, default=101, help='number of epochs to train')
+    parser.add_argument('--epochs', type=int, default=501, help='number of epochs to train')
     parser.add_argument('--lr', type=float, default=1e-4, help='learning rate') 
-    #parser.add_argument('--lr', type=float, default=1e-3, help='learning rate')
     parser.add_argument('--base_lr_ratio', type=float, default=0.1)
     parser.add_argument('--weight_decay', type=float, default=1e-4)
     parser.add_argument('--resume', type=str, default=None)
@@ -152,11 +127,9 @@ if __name__ == '__main__':
     parser.add_argument('--seed', type=int, default=2021, help='random seed') # org 2021
     parser.add_argument('--deterministic', type=str2bool, default=False)
     parser.add_argument('--log_interval', type=int, default=100)
-    parser.add_argument('--device', default='cuda',
-                        help='device to use for training / testing')
-    parser.add_argument('--num_queries', default=100, type=int,
-                        help="Number of query slots")
-    #parser.add_argument('--augmentation', type=str2bool, default=True)
+    parser.add_argument('--device', default='cuda',help='device to use for training / testing')
+    parser.add_argument('--clip_max_norm', default=0.1, type=float,
+                        help='gradient clipping max norm')
 
     #Dataset 
     parser.add_argument('-r', '--root', type=str, default='../Data/')
@@ -166,8 +139,7 @@ if __name__ == '__main__':
     parser.add_argument('--img_reduce', type=int, default=1)
     parser.add_argument('--num_cams', type=int, default=7)   # 6 for MultiviewX
     parser.add_argument('--num_frames', type=int, default=2000) # 400 for MultiviewXgit 
-    parser.add_argument('--train_ratio', type=float, default=0.01)
-
+    parser.add_argument('--train_ratio', type=float, default=0.9)
     parser.add_argument('--reID', action='store_true')
 
     # Model 
@@ -175,6 +147,12 @@ if __name__ == '__main__':
     parser.add_argument('--dropout', type=float, default=0.1)
     #parser.add_argument('--bottleneck_dim', type=int, default=128)
     parser.add_argument('--embed_dims', type=int, default=512)
+    parser.add_argument('--num_decoder_layer', type=int, default=6)
+    parser.add_argument('--num_queries', default=100, type=int,
+                        help="Number of query slots")
+    parser.add_argument('--num_heads', default=4, type=int,
+                        help="Number of heads of MultiHeadAttn")
+
 
     # Matcher 
     parser.add_argument('--set_cost_class', default=1, type=float,

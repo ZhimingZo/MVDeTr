@@ -7,54 +7,48 @@ from multiview_detector.loss.pedtr.matcher import *
 from multiview_detector.loss.pedtr.criterion import SetCriterion
 
 class PedTR(nn.Module):
-    def __init__(self, ):
+    def __init__(self, args):
         super(PedTR, self).__init__()  
+
+        self.num_query = args.num_queries
+        self.embed_dims = args.embed_dims
 
         self.backbone = nn.Sequential(*list(resnet18(pretrained=True,
                                                      replace_stride_with_dilation=[False, True, True]).children())[:-2])
-        self.query_generator = Query_generator(num_query=100, dims=512)
+        
+        self.query_generator = Query_generator(img_backbone=self.backbone, num_query=self.num_query, dims=self.embed_dims)
+
   
-        self.detect_head = PedTRHead(num_decoder_layer=6)
+        self.detect_head = PedTRHead(args)
 
     def forward(self, img, cam_rays=None, proj_mat=None): 
         # extract image features 
         assert len(img.shape) == 5
         B, N, C, H, W = img.shape
         img = img.reshape(B*N, C, H, W) #7, 3, 1080, 1920 
-        '''
-        from torchvision import transforms as T
-        img = T.ToPILImage()(img[0].squeeze().cpu())
-        img.save("test_.png")
-        exit()
-        ''' 
         img_features = self.backbone(img)  # torch.Size([7, 512, 135, 240])
-
         # generate query (either view & ray encoded or normal query) and learnable positional embedding 
-        query, query_pos = self.query_generator(img, cam_rays) # torch.Size([100, 512]) torch.Size([100, 512])
-        
+        query, query_pos = self.query_generator(img=img, ray=cam_rays) # torch.Size([100, 512]) torch.Size([100, 512])        
         # output the final output from detect head 
-        # out:{output_class, output_coords}
+        # out:[{output_class, output_coords} X number of decoder_layers] 
         out = self.detect_head(img_features=img_features, proj_mats=proj_mat, query=query, query_pos=query_pos)
-         
+
         return  out 
 
 
 def build_model(args): 
-
     device = torch.device(args.device)
     # build_model  
-    model = PedTR().to(device)
+    model = PedTR(args).to(device)
     # build matcher 
     matcher = build_matcher(args)
 
     weight_dict = {'loss_ce': args.ce_loss_coef, 'loss_bbox': args.bbox_loss_coef}
-    #losses = ['labels', 'boxes']
     losses = ['labels', 'boxes']
+    # build criterion
     criterion = SetCriterion(num_classes=2, matcher=matcher, weight_dict=weight_dict,
                              eos_coef=args.eos_coef, losses=losses)
     criterion.to(device)
-    #print(model)
-    #exit()
     return model, criterion
 
 
@@ -74,3 +68,20 @@ def test():
     print(out_coord.shape, out_cls.shape)
     pass    
 #test()
+
+
+
+
+
+
+
+
+
+
+
+'''
+from torchvision import transforms as T
+img = T.ToPILImage()(img[0].squeeze().cpu())
+img.save("test_.png")
+exit()
+''' 

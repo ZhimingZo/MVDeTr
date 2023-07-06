@@ -37,6 +37,7 @@ class PedTrainer(BaseTrainer):
         self.log_interval = args.log_interval
         self.denormalize = img_color_denormalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
         self.device = args.device
+        self.clip_max_norm = args.clip_max_norm
 
         #print(self.model, self.criterion, self.optimizer, self.dataloader_train, self.dataloader_test, self.scheduler, self.device)
         #exit()
@@ -52,7 +53,6 @@ class PedTrainer(BaseTrainer):
             
             print('Training...:' + str(epoch))
             loss_epo_box, loss_epo_cls=0, 0 
-            #loss = 0
             for batch_idx, (imgs, proj_mats, targets, frame) in enumerate(self.dataloader_train):
                 print(str(batch_idx) + ":")
                 imgs = imgs.to(self.device)
@@ -61,17 +61,19 @@ class PedTrainer(BaseTrainer):
 
                 # supervised
                 outputs  = self.model(img=imgs, proj_mat=proj_mats)
-                 
-                loss_dict = self.criterion(outputs, targets)
-                weight_dict = self.criterion.weight_dict
+                loss = 0
+                loss_dict_list = []
+                for output in outputs: 
+                    loss_dict = self.criterion(output, targets)
+                    weight_dict = self.criterion.weight_dict
                 #print(loss_dict.keys())
-                loss = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
+                    loss += sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
+                    loss_dict_list.append(loss_dict)
                 
-
-                loss_epo_box += loss_dict['loss_bbox']
-                loss_epo_cls += loss_dict['loss_ce']
-                print('boxes loss: ' + str(loss_dict['loss_bbox']))
-                print('class loss: ' + str(loss_dict['loss_ce']))
+                loss_epo_box += loss_dict_list[-1]['loss_bbox']
+                loss_epo_cls += loss_dict_list[-1]['loss_ce']
+                print('boxes loss: ' + str(loss_dict_list[-1]['loss_bbox']))
+                print('class loss: ' + str(loss_dict_list[-1]['loss_ce']))
                 # multiview regularization
                 # Match loss 
                 t_f = time.time()
@@ -80,9 +82,9 @@ class PedTrainer(BaseTrainer):
                 #if (batch_idx+1) % 4 == 0: 
                 self.optimizer.zero_grad()
                 loss.backward()
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=0.1)
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=self.clip_max_norm)
                 self.optimizer.step()
-                self.scheduler.step()
+                
                     #loss = 0
                 losses += loss.item()
                 t_b = time.time()
@@ -93,6 +95,7 @@ class PedTrainer(BaseTrainer):
                 #    print(f'Train Epoch: {epoch}, Batch:{(batch_idx + 1)}, loss: {losses / (batch_idx + 1):.6f}, '
                 #        f'Time: {t_epoch:.1f}')
                 #print("hello")
+            self.scheduler.step()
             if epoch % 25 == 0: 
                 res_fpath = os.path.join(self.logdir, "pred_" + str(epoch)+".txt")
                 self.test(res_fpath=res_fpath, visualize=False)
@@ -117,7 +120,7 @@ class PedTrainer(BaseTrainer):
                 #print(imgs.shape)
                 print(frame)
 
-                outputs  = self.model(img=imgs, proj_mat=proj_mats)
+                outputs  = self.model(img=imgs, proj_mat=proj_mats)[-1]
                 probas = F.softmax(outputs['pred_logits'], -1)[0]
                 #keep = probas.max(-1).values #> 0.7 #
                 #score, index = probas.max(-1)#.values #> 0.7 #
