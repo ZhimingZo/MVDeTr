@@ -192,9 +192,9 @@ class PedTRTransformerDecoderLayer(nn.Module):
         #output = torch.permute(output, (1, 0, 2)) # torch.Size([1, 100, 512])
         output = self.output_proj(output) # torch.Size([1, 100, 512])
          
-        #pos_feat = self.position_encoder(inverse_sigmoid(reference_points_3d))
+        pos_feat = self.position_encoder(inverse_sigmoid(reference_points_3d))
          
-        query = self.dropout(output) + query #inp_residual #+ pos_feat
+        query = self.dropout(output) + query + pos_feat #inp_residual + pos_feat
         query = self.layerNorm2(query)
 
         # ffn projection 

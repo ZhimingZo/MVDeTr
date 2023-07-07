@@ -51,7 +51,7 @@ class PedTrainer(BaseTrainer):
         t_backward = 0
         for epoch in tqdm.tqdm(range(1, self.epochs + 1)):
             
-            print('Training...:' + str(epoch))
+            print('Training...:' + str(epoch) +"  LR: " + str(self.scheduler.get_last_lr()))
             loss_epo_box, loss_epo_cls=0, 0 
             for batch_idx, (imgs, proj_mats, targets, frame) in enumerate(self.dataloader_train):
                 print(str(batch_idx) + ":")
@@ -96,7 +96,7 @@ class PedTrainer(BaseTrainer):
                 #        f'Time: {t_epoch:.1f}')
                 #print("hello")
             self.scheduler.step()
-            if epoch % 25 == 0: 
+            if epoch % 10 == 0: 
                 res_fpath = os.path.join(self.logdir, "pred_" + str(epoch)+".txt")
                 self.test(res_fpath=res_fpath, visualize=False)
                 torch.save(self.model.state_dict(), os.path.join(self.logdir, 'MultiviewDetector_' + str(epoch)+'.pth'))
@@ -111,7 +111,7 @@ class PedTrainer(BaseTrainer):
         res_list = []
         t0 = time.time()
         print("Evaluating...")
-        for batch_idx, (imgs, proj_mats, targets, frame) in enumerate(self.dataloader_train):
+        for batch_idx, (imgs, proj_mats, targets, frame) in enumerate(self.dataloader_test):
             imgs = imgs.to(self.device)
             proj_mats=proj_mats.to(self.device)
             targets = [{k: v.to(self.device).squeeze() for k, v in targets.items()}]

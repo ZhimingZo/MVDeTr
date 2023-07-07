@@ -95,9 +95,10 @@ def main(args):
     
     optimizer = optim.AdamW(param_dicts, lr=args.lr, weight_decay=args.weight_decay)
      
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 40)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 10, gamma=0.9)
 
-    trainer = PedTrainer(model=model, optimizer=optimizer, criterion=criterion, logdir=logdir, dataloader_train=train_loader, dataloader_test=test_loader, scheduler=scheduler, args=args)
+    trainer = PedTrainer(model=model, optimizer=optimizer, criterion=criterion, logdir=logdir, dataloader_train=train_loader,\
+                         dataloader_test=test_loader, scheduler=scheduler, args=args)
 
     # learn
     res_fpath = os.path.join(logdir, 'train_100.txt')
@@ -118,8 +119,8 @@ if __name__ == '__main__':
     parser.add_argument('--id_ratio', type=float, default=0)
     parser.add_argument('-j', '--num_workers', type=int, default=4)
     parser.add_argument('--dropcam', type=float, default=0) # org 0 
-    parser.add_argument('--epochs', type=int, default=501, help='number of epochs to train')
-    parser.add_argument('--lr', type=float, default=1e-4, help='learning rate') 
+    parser.add_argument('--epochs', type=int, default=201, help='number of epochs to train')
+    parser.add_argument('--lr', type=float, default=5e-4, help='learning rate') 
     parser.add_argument('--base_lr_ratio', type=float, default=0.1)
     parser.add_argument('--weight_decay', type=float, default=1e-4)
     parser.add_argument('--resume', type=str, default=None)
