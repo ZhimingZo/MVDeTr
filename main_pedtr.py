@@ -10,22 +10,33 @@ import tqdm
 import random
 import numpy as np
 import torch
-from torch.cuda.amp import GradScaler
+#from torch.cuda.amp import GradScaler
 from torch import optim
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, DistributedSampler
 from multiview_detector.datasets_pedtr.ped_dataset import build_dataset
 from multiview_detector.models.pedtr.detectors.pedtr import build_model
 from multiview_detector.utils.logger import Logger
 from multiview_detector.utils.draw_curve import draw_curve
 from multiview_detector.utils.str2bool import str2bool
-from multiview_detector.trainer_pedtr import PedTrainer
+from multiview_detector.trainer_pedtr import PedTRTrainer
 from torchvision import transforms as T
 import warnings 
+
+import multiview_detector.utils.misc as utils
+import torch.distributed as dist
+
+
+
+
 warnings.filterwarnings("ignore")
 
 
  
 def main(args):
+    utils.init_distributed_mode(args)
+    print("git:\n  {}\n".format(utils.get_sha()))
+    
+
     # check if in debug mode
     gettrace = getattr(sys, 'gettrace', None)
     if gettrace():
@@ -43,12 +54,6 @@ def main(args):
         torch.cuda.manual_seed(args.seed)
         torch.cuda.manual_seed_all(args.seed)
 
-     
-    def seed_worker(worker_id):
-        worker_seed = torch.initial_seed() % 2 ** 32
-        np.random.seed(worker_seed)
-        random.seed(worker_seed)
-
     # deterministic
     if args.deterministic:
         torch.backends.cudnn.deterministic = True
@@ -56,16 +61,7 @@ def main(args):
         torch.autograd.set_detect_anomaly(True)
     else:
         torch.backends.cudnn.benchmark = True
-
-    # dataset
-    train_set = build_dataset(isTrain=True, args=args)
-    test_set = build_dataset(isTrain=False, args=args)
-
-    train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers,
-                              pin_memory=True, worker_init_fn=seed_worker)
-    test_loader = DataLoader(test_set, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers,
-                             pin_memory=True, worker_init_fn=seed_worker)
-     
+    
     # logging
     if args.resume is None:
         logdir = f'logs/{args.dataset}/{"debug_" if is_debug else ""}' \
@@ -86,19 +82,58 @@ def main(args):
     print(logdir)
     print('Settings:')
     print(vars(args))
+   
+    
     # model
-     
     model, criterion = build_model(args)
-    param_dicts = [{"params": [p for n, p in model.named_parameters() if 'backbone' not in n and p.requires_grad], "lr": args.lr},
-                   {"params": [p for n, p in model.named_parameters() if 'backbone' in n and p.requires_grad],
+    
+    model_without_ddp = model 
+    if args.distributed: 
+        
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])
+ 
+        model_without_ddp = model.module
+         
+    n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print('number of params:', n_parameters)
+
+    param_dicts = [{"params": [p for n, p in model_without_ddp.named_parameters() if 'backbone' not in n and p.requires_grad], "lr": args.lr},
+                   {"params": [p for n, p in model_without_ddp.named_parameters() if 'backbone' in n and p.requires_grad],
                     "lr": args.lr * args.base_lr_ratio, }, ]
     
     optimizer = optim.AdamW(param_dicts, lr=args.lr, weight_decay=args.weight_decay)
      
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 10, gamma=0.9)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lr_drop, gamma=args.lr_gamma)
 
-    trainer = PedTrainer(model=model, optimizer=optimizer, criterion=criterion, logdir=logdir, dataloader_train=train_loader,\
-                         dataloader_test=test_loader, scheduler=scheduler, args=args)
+
+     # dataset
+    def seed_worker(worker_id):
+        worker_seed = torch.initial_seed() % 2 ** 32
+        np.random.seed(worker_seed)
+        random.seed(worker_seed)
+
+    dataset_train = build_dataset(isTrain=True, args=args)
+    dataset_test = build_dataset(isTrain=False, args=args)
+
+    if args.distributed:
+        sampler_train = DistributedSampler(dataset_train)
+        sampler_val = DistributedSampler(dataset_test, shuffle=False)
+    else:
+        sampler_train = torch.utils.data.RandomSampler(dataset_train)
+        sampler_val = torch.utils.data.SequentialSampler(dataset_test)
+    
+    batch_sampler_train = torch.utils.data.BatchSampler(
+        sampler_train, args.batch_size, drop_last=True)
+
+    data_loader_train = DataLoader(dataset_train, batch_sampler=batch_sampler_train, num_workers=args.num_workers,
+                              pin_memory=True, worker_init_fn=seed_worker)
+    data_loader_test = DataLoader(dataset_test, batch_size=args.batch_size, sampler=sampler_val, drop_last=False,  num_workers=args.num_workers,
+                             pin_memory=True, worker_init_fn=seed_worker)
+     
+
+
+    trainer = PedTRTrainer(model=model, optimizer=optimizer, criterion=criterion, logdir=logdir, dataloader_train=data_loader_train,\
+                          sampler_train=sampler_train, dataloader_test=data_loader_test, scheduler=scheduler, args=args)
 
     # learn
     res_fpath = os.path.join(logdir, 'train_100.txt')
@@ -106,22 +141,24 @@ def main(args):
             train_loss = trainer.train()
             torch.save(model.state_dict(), os.path.join(logdir, 'MultiviewDetector.pth'))
     else:
-        model.load_state_dict(torch.load(f'logs/{args.dataset}/{args.resume}/MultiviewDetector_100.pth'))
-        model.eval()
+        model_without_ddp.load_state_dict(torch.load(f'logs/{args.dataset}/{args.resume}/MultiviewDetector_100.pth'))
+        model_without_ddp.eval()
     print('Test loaded model...')
     trainer.test(res_fpath, visualize=False)
 
-
+    # clean up 
+    dist.destroy_process_group()
 if __name__ == '__main__':
     # settings
     parser = argparse.ArgumentParser(description='Multiview detector')
     
     parser.add_argument('--id_ratio', type=float, default=0)
-    parser.add_argument('-j', '--num_workers', type=int, default=4)
     parser.add_argument('--dropcam', type=float, default=0) # org 0 
     parser.add_argument('--epochs', type=int, default=201, help='number of epochs to train')
-    parser.add_argument('--lr', type=float, default=5e-4, help='learning rate') 
+    parser.add_argument('--lr', type=float, default=1e-4, help='learning rate') 
     parser.add_argument('--base_lr_ratio', type=float, default=0.1)
+    parser.add_argument('--lr_drop', default=10, type=int)
+    parser.add_argument('--lr_gamma', default=0.9, type=int)
     parser.add_argument('--weight_decay', type=float, default=1e-4)
     parser.add_argument('--resume', type=str, default=None)
     parser.add_argument('--visualize', action='store_true')
@@ -142,6 +179,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_frames', type=int, default=2000) # 400 for MultiviewXgit 
     parser.add_argument('--train_ratio', type=float, default=0.9)
     parser.add_argument('--reID', action='store_true')
+    parser.add_argument('--num_workers', default=8, type=int) # org 4
 
     # Model 
     #parser.add_argument('--arch', type=str, default='resnet18', choices=['vgg11', 'resnet18', 'mobilenet'])
@@ -166,6 +204,16 @@ if __name__ == '__main__':
     parser.add_argument('--ce_loss_coef', default=1, type=float) # org_1
     parser.add_argument('--eos_coef', default=0.1, type=float, 
                         help="Relative classification weight of the no-object class") # org_0.1
+    
+
+
+    # distributed training parameters
+    parser.add_argument('--world_size', default=1, type=int,
+                        help='number of distributed processes')
+    parser.add_argument('--dist_url', default='env://', help='url used to set up distributed training')
+    parser.add_argument('--local_rank', default=1, type=int,
+                        help='local rank')
+
 
     args = parser.parse_args()
      

@@ -16,14 +16,15 @@ from multiview_detector.utils.meters import AverageMeter
 from multiview_detector.utils.image_utils import add_heatmap_to_image, img_color_denormalize
 import math
 import sys
+import torch.distributed as dist
 
 class BaseTrainer(object):
     def __init__(self):
         super(BaseTrainer, self).__init__()
 
 
-class PedTrainer(BaseTrainer):
-    def __init__(self, model, optimizer, criterion, logdir, dataloader_train, dataloader_test, scheduler, args):
+class PedTRTrainer(BaseTrainer):
+    def __init__(self, model, optimizer, criterion, logdir, dataloader_train, sampler_train, dataloader_test, scheduler, args):
         super(BaseTrainer, self).__init__()
         self.model = model
         self.logdir = logdir
@@ -32,13 +33,15 @@ class PedTrainer(BaseTrainer):
        
         self.epochs=args.epochs
         self.dataloader_train = dataloader_train
+        self.sampler_train = sampler_train
+
         self.dataloader_test = dataloader_test
         self.scheduler = scheduler
         self.log_interval = args.log_interval
         self.denormalize = img_color_denormalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
         self.device = args.device
         self.clip_max_norm = args.clip_max_norm
-
+        self.distributed = args.distributed
         #print(self.model, self.criterion, self.optimizer, self.dataloader_train, self.dataloader_test, self.scheduler, self.device)
         #exit()
 
@@ -50,9 +53,11 @@ class PedTrainer(BaseTrainer):
         t_forward = 0
         t_backward = 0
         for epoch in tqdm.tqdm(range(1, self.epochs + 1)):
-            
+            if self.distributed:
+                self.sampler_train.set_epoch(epoch)
             print('Training...:' + str(epoch) +"  LR: " + str(self.scheduler.get_last_lr()))
             loss_epo_box, loss_epo_cls=0, 0 
+            #dist.barrier()
             for batch_idx, (imgs, proj_mats, targets, frame) in enumerate(self.dataloader_train):
                 print(str(batch_idx) + ":")
                 imgs = imgs.to(self.device)
@@ -95,11 +100,12 @@ class PedTrainer(BaseTrainer):
                 #    print(f'Train Epoch: {epoch}, Batch:{(batch_idx + 1)}, loss: {losses / (batch_idx + 1):.6f}, '
                 #        f'Time: {t_epoch:.1f}')
                 #print("hello")
-            self.scheduler.step()
-            if epoch % 10 == 0: 
+            #self.scheduler.step()
+            if epoch % 25 == 0: 
                 res_fpath = os.path.join(self.logdir, "pred_" + str(epoch)+".txt")
                 self.test(res_fpath=res_fpath, visualize=False)
-                torch.save(self.model.state_dict(), os.path.join(self.logdir, 'MultiviewDetector_' + str(epoch)+'.pth'))
+                if dist.get_rank() == 0:
+                    torch.save(self.model.state_dict(), os.path.join(self.logdir, 'MultiviewDetector_' + str(epoch)+'.pth'))
                 self.model.train()
             print(f'Train Epoch: {epoch}, BboxLoss: {loss_epo_box:.6f}, ClsLoss:{loss_epo_cls:.6f}')   
         return losses / len(self.dataloader_train)
@@ -120,7 +126,7 @@ class PedTrainer(BaseTrainer):
                 #print(imgs.shape)
                 print(frame)
 
-                outputs  = self.model(img=imgs, proj_mat=proj_mats)[-1]
+                outputs  = self.model.module(img=imgs, proj_mat=proj_mats)[-1]
                 probas = F.softmax(outputs['pred_logits'], -1)[0]
                 #keep = probas.max(-1).values #> 0.7 #
                 #score, index = probas.max(-1)#.values #> 0.7 #
