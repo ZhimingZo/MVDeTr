@@ -132,7 +132,7 @@ def main(args):
      
 
 
-    trainer = PedTRTrainer(model=model, optimizer=optimizer, criterion=criterion, logdir=logdir, dataloader_train=data_loader_train,\
+    trainer = PedTRTrainer(model=model, optimizer=optimizer, criterion=criterion, logdir=sys.stdout, dataloader_train=data_loader_train,\
                           sampler_train=sampler_train, dataloader_test=data_loader_test, scheduler=scheduler, args=args)
 
     # learn
@@ -182,9 +182,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_workers', default=8, type=int) # org 4
 
     # Model 
-    #parser.add_argument('--arch', type=str, default='resnet18', choices=['vgg11', 'resnet18', 'mobilenet'])
     parser.add_argument('--dropout', type=float, default=0.1)
-    #parser.add_argument('--bottleneck_dim', type=int, default=128)
     parser.add_argument('--embed_dims', type=int, default=512)
     parser.add_argument('--num_decoder_layer', type=int, default=6)
     parser.add_argument('--num_queries', default=100, type=int,
@@ -194,14 +192,14 @@ if __name__ == '__main__':
 
 
     # Matcher 
-    parser.add_argument('--set_cost_class', default=1, type=float,
-                        help="Class coefficient in the matching cost")
-    parser.add_argument('--set_cost_bbox', default=5, type=float,
-                        help="L1 box coefficient in the matching cost") 
+    parser.add_argument('--set_cost_class', default=2, type=float,
+                        help="Class coefficient in the matching cost") #1 
+    parser.add_argument('--set_cost_bbox', default=4, type=float,
+                        help="L1 box coefficient in the matching cost") #5 
     
     # Loss coefficients 
-    parser.add_argument('--bbox_loss_coef', default=5, type=float)
-    parser.add_argument('--ce_loss_coef', default=1, type=float) # org_1
+    parser.add_argument('--bbox_loss_coef', default=4, type=float) #5 
+    parser.add_argument('--ce_loss_coef', default=2, type=float) #1
     parser.add_argument('--eos_coef', default=0.1, type=float, 
                         help="Relative classification weight of the no-object class") # org_0.1
     

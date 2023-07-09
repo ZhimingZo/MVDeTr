@@ -136,7 +136,7 @@ class PedTRTransformerDecoderLayer(nn.Module):
         self.multiheadattn_query = nn.MultiheadAttention(self.embed_dims, num_heads=self.num_heads)
 
         # image feature sampling 
-        self.img_feature_transformer = ImgFeatureTransformer(dim=self.embed_dims, depth=3, heads=self.num_heads, mlp_dim=self.embed_dims, dropout=self.dropout_ratio)
+        self.img_feature_transformer = ImgFeatureTransformer(dim=self.embed_dims, depth=4, heads=self.num_heads, mlp_dim=self.embed_dims, dropout=self.dropout_ratio)
 
         # feedforward
         self.ffns_query = nn.Sequential(
@@ -194,7 +194,7 @@ class PedTRTransformerDecoderLayer(nn.Module):
          
         pos_feat = self.position_encoder(inverse_sigmoid(reference_points_3d))
          
-        query = self.dropout(output) + query + pos_feat #inp_residual + pos_feat
+        query = self.dropout(output) + query + pos_feat 
         query = self.layerNorm2(query)
 
         # ffn projection 

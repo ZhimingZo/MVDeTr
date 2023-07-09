@@ -37,7 +37,7 @@ class PedTRTrainer(BaseTrainer):
 
         self.dataloader_test = dataloader_test
         self.scheduler = scheduler
-        self.log_interval = args.log_interval
+        self.log_interval = args.log_interval #100
         self.denormalize = img_color_denormalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
         self.device = args.device
         self.clip_max_norm = args.clip_max_norm
@@ -52,12 +52,15 @@ class PedTRTrainer(BaseTrainer):
         t_b = time.time()
         t_forward = 0
         t_backward = 0
+
+        best_moda = 0
+
         for epoch in tqdm.tqdm(range(1, self.epochs + 1)):
             if self.distributed:
                 self.sampler_train.set_epoch(epoch)
             print('Training...:' + str(epoch) +"  LR: " + str(self.scheduler.get_last_lr()))
             loss_epo_box, loss_epo_cls=0, 0 
-            #dist.barrier()
+            
             for batch_idx, (imgs, proj_mats, targets, frame) in enumerate(self.dataloader_train):
                 print(str(batch_idx) + ":")
                 imgs = imgs.to(self.device)
@@ -71,43 +74,41 @@ class PedTRTrainer(BaseTrainer):
                 for output in outputs: 
                     loss_dict = self.criterion(output, targets)
                     weight_dict = self.criterion.weight_dict
-                #print(loss_dict.keys())
                     loss += sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
                     loss_dict_list.append(loss_dict)
                 
-                loss_epo_box += loss_dict_list[-1]['loss_bbox']
-                loss_epo_cls += loss_dict_list[-1]['loss_ce']
-                print('boxes loss: ' + str(loss_dict_list[-1]['loss_bbox']))
-                print('class loss: ' + str(loss_dict_list[-1]['loss_ce']))
+                if dist.get_rank() == 0:
+                    loss_epo_box += loss_dict_list[-1]['loss_bbox']
+                    loss_epo_cls += loss_dict_list[-1]['loss_ce']
+                    print('boxes loss: ' + str(loss_dict_list[-1]['loss_bbox']))
+                    print('class loss: ' + str(loss_dict_list[-1]['loss_ce']))
                 # multiview regularization
                 # Match loss 
                 t_f = time.time()
                 t_forward += t_f - t_b
 
-                #if (batch_idx+1) % 4 == 0: 
                 self.optimizer.zero_grad()
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=self.clip_max_norm)
                 self.optimizer.step()
                 
-                    #loss = 0
                 losses += loss.item()
                 t_b = time.time()
                 t_backward += t_b - t_f
-                #if (batch_idx + 1) % self.log_interval == 0 or batch_idx + 1 == len(self.dataloader_train):
-                #    t1 = time.time()
-                #    t_epoch = t1 - t0
-                #    print(f'Train Epoch: {epoch}, Batch:{(batch_idx + 1)}, loss: {losses / (batch_idx + 1):.6f}, '
-                #        f'Time: {t_epoch:.1f}')
-                #print("hello")
+                if (batch_idx + 1) % self.log_interval == 0 or batch_idx + 1 == len(self.dataloader_train):
+                    self.logdir.flush() 
             #self.scheduler.step()
             if epoch % 25 == 0: 
                 res_fpath = os.path.join(self.logdir, "pred_" + str(epoch)+".txt")
-                self.test(res_fpath=res_fpath, visualize=False)
-                if dist.get_rank() == 0:
+                _, moda = self.test(res_fpath=res_fpath, visualize=False)
+                if dist.get_rank() == 0 and moda > best_moda:
+                    best_moda = moda
                     torch.save(self.model.state_dict(), os.path.join(self.logdir, 'MultiviewDetector_' + str(epoch)+'.pth'))
                 self.model.train()
-            print(f'Train Epoch: {epoch}, BboxLoss: {loss_epo_box:.6f}, ClsLoss:{loss_epo_cls:.6f}')   
+            if dist.get_rank() == 0:
+                print(f'Train Epoch: {epoch}, BboxLoss: {loss_epo_box:.6f}, ClsLoss:{loss_epo_cls:.6f}')
+             
+        self.logdir.close() 
         return losses / len(self.dataloader_train)
   
     def test(self, res_fpath=None, visualize=False):
