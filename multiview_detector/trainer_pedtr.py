@@ -53,7 +53,7 @@ class PedTRTrainer(BaseTrainer):
         t_forward = 0
         t_backward = 0
 
-        best_moda = 0
+        best_moda = -1
 
         for epoch in tqdm.tqdm(range(1, self.epochs + 1)):
             if self.distributed:
@@ -95,22 +95,19 @@ class PedTRTrainer(BaseTrainer):
                 losses += loss.item()
                 t_b = time.time()
                 t_backward += t_b - t_f
-                if (batch_idx + 1) % self.log_interval == 0 or batch_idx + 1 == len(self.dataloader_train):
-                    self.logdir.flush() 
+                
             #self.scheduler.step()
-            if epoch % 25 == 0: 
+            if epoch % 1 == 0 and dist.get_rank() == 0: 
                 res_fpath = os.path.join(self.logdir, "pred_" + str(epoch)+".txt")
                 _, moda = self.test(res_fpath=res_fpath, visualize=False)
-                if dist.get_rank() == 0 and moda > best_moda:
+                if moda > best_moda:
                     best_moda = moda
-                    torch.save(self.model.state_dict(), os.path.join(self.logdir, 'MultiviewDetector_' + str(epoch)+'.pth'))
+                    torch.save(self.model.module.state_dict(), os.path.join(self.logdir, 'MultiviewDetector_best.pth'))
                 self.model.train()
             if dist.get_rank() == 0:
                 print(f'Train Epoch: {epoch}, BboxLoss: {loss_epo_box:.6f}, ClsLoss:{loss_epo_cls:.6f}')
-             
-        self.logdir.close() 
         return losses / len(self.dataloader_train)
-  
+    @torch.no_grad()
     def test(self, res_fpath=None, visualize=False):
         self.model.eval()
         self.criterion.eval()
@@ -122,59 +119,18 @@ class PedTRTrainer(BaseTrainer):
             imgs = imgs.to(self.device)
             proj_mats=proj_mats.to(self.device)
             targets = [{k: v.to(self.device).squeeze() for k, v in targets.items()}]
-            # with autocast():
-            with torch.no_grad():
-                #print(imgs.shape)
-                print(frame)
-
-                outputs  = self.model.module(img=imgs, proj_mat=proj_mats)[-1]
-                probas = F.softmax(outputs['pred_logits'], -1)[0]
-                #keep = probas.max(-1).values #> 0.7 #
-                #score, index = probas.max(-1)#.values #> 0.7 #
-                #print(probas)
-                #exit()
-            
-                index = torch.nonzero((probas[..., 1] > 0.7).to(torch.int32)).flatten()
-                score = probas[index, 1] 
-                #print(index.shape, score.shape)
-                #exit()
-                #print(outputs['pred_boxes'].shape) # [1, 100, 2]
-                #print(keep.shape) # [1, 100]
-                #exit()
-                boxes = outputs['pred_boxes'][0]
-                boxes = boxes[index]
-                boxes[:, 0] = (boxes[:, 0] * self.dataloader_test.dataset.world_grid_shape[0]).long()
-                boxes[:, 1] = (boxes[:, 1] * self.dataloader_test.dataset.world_grid_shape[1]).long()
-                res = boxes.cpu()
-                res = torch.concat((torch.ones(boxes.shape[0]).unsqueeze(1)*frame.cpu(), res), axis=1)
-                res_list.append(res)
-                
-                #res = res.cpu().numpy() 
-                #res = np.
-                
-            #print(boxes.shape)
-            #print(boxes)
-            #print(frame)
-            #exit()
-            '''
-            if res_fpath is not None:
-                xys = mvdet_decode(torch.sigmoid(world_heatmap.detach().cpu()), world_offset.detach().cpu(),
-                                   reduce=self.dataloader.dataset.world_reduce)
-                # xys = mvdet_decode(world_heatmap.detach().cpu(), reduce=dataloader.dataset.world_reduce)
-                grid_xy, scores = xys[:, :, :2], xys[:, :, 2:3]
-                if self.dataloader.dataset.indexing == 'xy':
-                    positions = grid_xy
-                else:
-                    positions = grid_xy[:, :, [1, 0]]
-
-                for b in range(B):
-                    ids = scores[b].squeeze() > self.cls_thres
-                    pos, s = positions[b, ids], scores[b, ids, 0]
-                    res = torch.cat([torch.ones([len(s), 1]) * frame[b], pos], dim=1)
-                    ids, count = nms(pos, s, 20, np.inf)
-                    res = torch.cat([torch.ones([count, 1]) * frame[b], pos[ids[:count]]], dim=1)
-                    res_list.append(res)
-            '''
+            print(frame)
+            outputs  = self.model.module(img=imgs, proj_mat=proj_mats)[-1]
+            probas = F.softmax(outputs['pred_logits'], -1)[0]
+            index = torch.nonzero((probas[..., 1] > 0.7).to(torch.int32)).flatten()
+            score = probas[index, 1] 
+            boxes = outputs['pred_boxes'][0]
+            boxes = boxes[index]
+            boxes[:, 0] = (boxes[:, 0] * self.dataloader_test.dataset.world_grid_shape[0]).long()
+            boxes[:, 1] = (boxes[:, 1] * self.dataloader_test.dataset.world_grid_shape[1]).long()
+            res = boxes.cpu()
+            res = torch.concat((torch.ones(boxes.shape[0]).unsqueeze(1)*frame.cpu(), res), axis=1)
+            res_list.append(res)
         t1 = time.time()
         t_epoch = t1 - t0
   

@@ -86,12 +86,9 @@ def main(args):
     
     # model
     model, criterion = build_model(args)
-    
     model_without_ddp = model 
     if args.distributed: 
-        
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])
- 
         model_without_ddp = model.module
          
     n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -132,17 +129,19 @@ def main(args):
      
 
 
-    trainer = PedTRTrainer(model=model, optimizer=optimizer, criterion=criterion, logdir=sys.stdout, dataloader_train=data_loader_train,\
+    trainer = PedTRTrainer(model=model, optimizer=optimizer, criterion=criterion, logdir=logdir, dataloader_train=data_loader_train,\
                           sampler_train=sampler_train, dataloader_test=data_loader_test, scheduler=scheduler, args=args)
 
     # learn
-    res_fpath = os.path.join(logdir, 'train_100.txt')
+    
     if args.resume is None:
             train_loss = trainer.train()
             torch.save(model.state_dict(), os.path.join(logdir, 'MultiviewDetector.pth'))
     else:
-        model_without_ddp.load_state_dict(torch.load(f'logs/{args.dataset}/{args.resume}/MultiviewDetector_100.pth'))
+        model_without_ddp.load_state_dict(torch.load(f'logs/{args.dataset}/{args.resume}/MultiviewDetector_.pth'))
         model_without_ddp.eval()
+
+    res_fpath = os.path.join(logdir, 'best_model.txt')
     print('Test loaded model...')
     trainer.test(res_fpath, visualize=False)
 
@@ -162,7 +161,7 @@ if __name__ == '__main__':
     parser.add_argument('--weight_decay', type=float, default=1e-4)
     parser.add_argument('--resume', type=str, default=None)
     parser.add_argument('--visualize', action='store_true')
-    parser.add_argument('--seed', type=int, default=2021, help='random seed') # org 2021
+    parser.add_argument('--seed', type=int, default=42, help='random seed') # org 2021
     parser.add_argument('--deterministic', type=str2bool, default=False)
     parser.add_argument('--log_interval', type=int, default=100)
     parser.add_argument('--device', default='cuda',help='device to use for training / testing')
