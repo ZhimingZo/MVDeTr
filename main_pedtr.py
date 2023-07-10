@@ -25,12 +25,7 @@ import warnings
 import multiview_detector.utils.misc as utils
 import torch.distributed as dist
 
-
-
-
 warnings.filterwarnings("ignore")
-
-
  
 def main(args):
     utils.init_distributed_mode(args)
