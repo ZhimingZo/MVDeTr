@@ -3,8 +3,11 @@ import torch.nn as nn
 from multiview_detector.models.pedtr.utils.query_generator import Query_generator
 from multiview_detector.models.pedtr.backbones.resnet import resnet18
 from multiview_detector.models.pedtr.dense_heads.pedtr_head import PedTRHead
-from multiview_detector.loss.pedtr.matcher_focal_loss import * 
-from multiview_detector.loss.pedtr.criterion_focal_loss import SetCriterion
+from multiview_detector.loss.pedtr.matcher import * 
+from multiview_detector.loss.pedtr.criterion import SetCriterion
+
+#from multiview_detector.loss.pedtr.matcher_focal_loss import * 
+#from multiview_detector.loss.pedtr.criterion_focal_loss import SetCriterion
 
 class PedTR(nn.Module):
     def __init__(self, args):
@@ -47,7 +50,7 @@ def build_model(args):
     losses = ['labels', 'boxes']
     # build criterion
     criterion = SetCriterion(num_classes=2, matcher=matcher, weight_dict=weight_dict,
-                            losses=losses)
+                            losses=losses, eos_coef=args.eos_coef)
     criterion.to(device)
     return model, criterion
 

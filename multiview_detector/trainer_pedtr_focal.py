@@ -24,7 +24,7 @@ class BaseTrainer(object):
 
 
 class PedTRTrainer(BaseTrainer):
-    def __init__(self, model, optimizer, criterion, logdir, dataloader_train, sampler_train, dataloader_test, scheduler, args):
+    def __init__(self, model, optimizer, criterion, logdir, dataloader_train, sampler_train, dataloader_test, scheduler, args, loss_writer):
         super(BaseTrainer, self).__init__()
         self.model = model
         self.logdir = logdir
@@ -44,7 +44,7 @@ class PedTRTrainer(BaseTrainer):
         self.distributed = args.distributed
         #print(self.model, self.criterion, self.optimizer, self.dataloader_train, self.dataloader_test, self.scheduler, self.device)
         #exit()
-
+        self.loss_writer = loss_writer
     def train(self,):
         self.model.train()
         losses = 0
@@ -77,11 +77,12 @@ class PedTRTrainer(BaseTrainer):
                     loss += sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
                     loss_dict_list.append(loss_dict)
                 
-                if dist.get_rank() == 0:
+                if not self.distributed or dist.get_rank() == 0:
                     loss_epo_box += loss_dict_list[-1]['loss_bbox']
                     loss_epo_cls += loss_dict_list[-1]['loss_ce']
                     print('boxes loss: ' + str(loss_dict_list[-1]['loss_bbox']))
                     print('class loss: ' + str(loss_dict_list[-1]['loss_ce']))
+
                 # multiview regularization
                 # Match loss 
                 t_f = time.time()
@@ -91,21 +92,23 @@ class PedTRTrainer(BaseTrainer):
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=self.clip_max_norm)
                 self.optimizer.step()
-                
                 losses += loss.item()
                 t_b = time.time()
                 t_backward += t_b - t_f
-                
             self.scheduler.step()
-            if epoch % 1 == 0 and dist.get_rank() == 0: 
+
+            if not self.distributed or dist.get_rank() == 0:
                 res_fpath = os.path.join(self.logdir, "pred_" + str(epoch)+".txt")
                 _, moda = self.test(res_fpath=res_fpath, visualize=False)
                 if moda > best_moda:
                     best_moda = moda
-                    torch.save(self.model.module.state_dict(), os.path.join(self.logdir, 'MultiviewDetector_best.pth'))
+                    torch.save(self.model.state_dict(), os.path.join(self.logdir, 'MultiviewDetector_best.pth'))
                 self.model.train()
-            if dist.get_rank() == 0:
+            if not self.distributed or dist.get_rank() == 0:
                 print(f'Train Epoch: {epoch}, BboxLoss: {loss_epo_box:.6f}, ClsLoss:{loss_epo_cls:.6f}')
+                self.loss_writer.add_scalar("boxes loss x epoch", loss_epo_box, epoch)
+                self.loss_writer.add_scalar("classs loss x epoch", loss_epo_cls, epoch)
+        self.loss_writer.close()
         return losses / len(self.dataloader_train)
     @torch.no_grad()
     def test(self, res_fpath=None, visualize=False):
@@ -120,15 +123,13 @@ class PedTRTrainer(BaseTrainer):
             proj_mats=proj_mats.to(self.device)
             targets = [{k: v.to(self.device).squeeze() for k, v in targets.items()}]
             outputs  = self.model(img=imgs, proj_mat=proj_mats)[-1]
-            #probas = F.softmax(outputs['pred_logits'], -1)[0]
-            #index = torch.nonzero((probas[..., 1] > 0.7).to(torch.int32)).flatten()
+
             probas = F.sigmoid(outputs['pred_logits'])[0]
-            index = torch.nonzero((probas[..., 1] > 0.5).to(torch.int32)).flatten()
-            #print(probas.shape)
-            #index = torch.nonzero(torch.argmax(probas, dim=1)==1).flatten()
-            #print(index.shape)
-            #print(index)
-            score = probas[index, 1] 
+            topk_values, topk_indexes = torch.topk(probas, 100, dim=0)
+            topk_indexes = torch.unique(topk_indexes.flatten())
+            index = torch.nonzero((probas[topk_indexes, 1] > 0.6).to(torch.int32)).flatten() # org 0.6 
+            index = topk_indexes[index]
+            score = probas[index, 0] 
             boxes = outputs['pred_boxes'][0]
             boxes = boxes[index]
             boxes[:, 0] = (boxes[:, 0] * self.dataloader_test.dataset.world_grid_shape[0]).long()

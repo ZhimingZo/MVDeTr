@@ -18,28 +18,21 @@ from multiview_detector.models.pedtr.detectors.pedtr import build_model
 from multiview_detector.utils.logger import Logger
 from multiview_detector.utils.draw_curve import draw_curve
 from multiview_detector.utils.str2bool import str2bool
-from multiview_detector.trainer_pedtr import PedTRTrainer
+#from multiview_detector.trainer_pedtr_focal import PedTRTrainer
+from multiview_detector.trainer_pedtr_ce import PedTRTrainer
 from torchvision import transforms as T
 import warnings 
-
 import multiview_detector.utils.misc as utils
 import torch.distributed as dist
+from torch.utils.tensorboard import SummaryWriter
 
 warnings.filterwarnings("ignore")
  
 def main(args):
+
+
     utils.init_distributed_mode(args)
     print("git:\n  {}\n".format(utils.get_sha()))
-    
-
-    # check if in debug mode
-    gettrace = getattr(sys, 'gettrace', None)
-    if gettrace():
-        print('Hmm, Big Debugger is watching me')
-        is_debug = True
-    else:
-        print('No sys.gettrace')
-        is_debug = False
 
     # seed
     if args.seed is not None:
@@ -56,28 +49,38 @@ def main(args):
         torch.autograd.set_detect_anomaly(True)
     else:
         torch.backends.cudnn.benchmark = True
-    
+   
     # logging
+     
+    logdir=None
     if args.resume is None:
-        logdir = f'logs_focal/{args.dataset}/{"debug_" if is_debug else ""}' \
-                 f'lr{args.lr}_baseR{args.base_lr_ratio}_' \
-                 f'drop{args.dropout}_dropcam{args.dropcam}_' \
-                 f'worldR{args.world_grid_reduce}_imgR{args.img_reduce}_' \
-                 f'{datetime.datetime.today():%Y-%m-%d_%H-%M-%S}'
-        os.makedirs(logdir, exist_ok=True)
-       
-        copy_tree('./multiview_detector', logdir + '/scripts/multiview_detector')
-        for script in os.listdir('.'):
-            if script.split('.')[-1] == 'py':
-                dst_file = os.path.join(logdir, 'scripts', os.path.basename(script))
-                shutil.copyfile(script, dst_file)
-        sys.stdout = Logger(os.path.join(logdir, 'log.txt'), )
+        if not args.distributed or dist.get_rank()==0:
+            logdir = f'logs_ddp_ce_loss/{args.dataset}/' \
+                    f'lr{args.lr}_baseR{args.base_lr_ratio}_' \
+                    f'drop{args.dropout}_dropcam{args.dropcam}_' \
+                    f'worldR{args.world_grid_reduce}_imgR{args.img_reduce}_' \
+                    f'{datetime.datetime.today():%Y-%m-%d_%H-%M-%S}'
+            os.makedirs(logdir, exist_ok=True)
+            source = './multiview_detector'
+            destination = logdir + '/scripts/multiview_detector'
+            for root, dirs, files in os.walk(source):
+                rel_path = os.path.relpath(root, source)
+                dest_dir = os.path.join(destination, rel_path)
+                os.makedirs(dest_dir, exist_ok=True)
+                for script in os.listdir('.'):
+                    if script.split('.')[-1] == 'py':
+                        dst_file = os.path.join(logdir, 'scripts', os.path.basename(script))
+                        shutil.copyfile(script, dst_file)
+            sys.stdout = Logger(os.path.join(logdir, 'log.txt'), )
     else:
-        logdir = f'logs/{args.dataset}/{args.resume}'
+        logdir = f'logs_ddp_ce_loss/{args.dataset}/{args.resume}'
+
     print(logdir)
     print('Settings:')
     print(vars(args))
-   
+
+    # loss writer 
+    writer = SummaryWriter()
     
     # model
     model, criterion = build_model(args)
@@ -94,10 +97,8 @@ def main(args):
                     "lr": args.lr * args.base_lr_ratio, }, ]
     
     optimizer = optim.AdamW(param_dicts, lr=args.lr, weight_decay=args.weight_decay)
-     
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lr_drop, gamma=args.lr_gamma)
-
-
+    #scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lr_drop, gamma=args.lr_gamma)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs, eta_min=0)
      # dataset
     def seed_worker(worker_id):
         worker_seed = torch.initial_seed() % 2 ** 32
@@ -122,36 +123,31 @@ def main(args):
     data_loader_test = DataLoader(dataset_test, batch_size=args.batch_size, sampler=sampler_val, drop_last=False,  num_workers=args.num_workers,
                              pin_memory=True, worker_init_fn=seed_worker)
      
-
-
     trainer = PedTRTrainer(model=model, optimizer=optimizer, criterion=criterion, logdir=logdir, dataloader_train=data_loader_train,\
-                          sampler_train=sampler_train, dataloader_test=data_loader_test, scheduler=scheduler, args=args)
+                          sampler_train=sampler_train, dataloader_test=data_loader_test, scheduler=scheduler, args=args, loss_writer=writer)
 
     # learn
-    
     if args.resume is None:
             train_loss = trainer.train()
-            torch.save(model.state_dict(), os.path.join(logdir, 'MultiviewDetector.pth'))
     else:
-        model_without_ddp.load_state_dict(torch.load(f'logs_focal/{args.dataset}/{args.resume}/MultiviewDetector_best.pth'))
+        model_without_ddp.load_state_dict(torch.load(f'logs_ddp_ce_loss/{args.dataset}/{args.resume}/MultiviewDetector_best.pth'))
         model_without_ddp.eval()
-
     res_fpath = os.path.join(logdir, 'best_model.txt')
     print('Test loaded model...')
     trainer.test(res_fpath, visualize=False)
-
     # clean up 
-    dist.destroy_process_group()
+    if args.distributed:
+        dist.destroy_process_group()
 if __name__ == '__main__':
     # settings
     parser = argparse.ArgumentParser(description='Multiview detector')
     
     parser.add_argument('--id_ratio', type=float, default=0)
     parser.add_argument('--dropcam', type=float, default=0) # org 0 
-    parser.add_argument('--epochs', type=int, default=21, help='number of epochs to train')
-    parser.add_argument('--lr', type=float, default=1e-4, help='learning rate') 
+    parser.add_argument('--epochs', type=int, default=81, help='number of epochs to train')
+    parser.add_argument('--lr', type=float, default=2e-4, help='learning rate') 
     parser.add_argument('--base_lr_ratio', type=float, default=0.1)
-    parser.add_argument('--lr_drop', default=4, type=int)
+    parser.add_argument('--lr_drop', default=5, type=int)
     parser.add_argument('--lr_gamma', default=0.9, type=int)
     parser.add_argument('--weight_decay', type=float, default=1e-4)
     parser.add_argument('--resume', type=str, default=None)
@@ -160,7 +156,7 @@ if __name__ == '__main__':
     parser.add_argument('--deterministic', type=str2bool, default=False)
     parser.add_argument('--log_interval', type=int, default=100)
     parser.add_argument('--device', default='cuda',help='device to use for training / testing')
-    parser.add_argument('--clip_max_norm', default=0.1, type=float,
+    parser.add_argument('--clip_max_norm', default=35, type=float,
                         help='gradient clipping max norm')
 
     #Dataset 
@@ -173,13 +169,13 @@ if __name__ == '__main__':
     parser.add_argument('--num_frames', type=int, default=2000) # 400 for MultiviewXgit 
     parser.add_argument('--train_ratio', type=float, default=0.9)
     parser.add_argument('--reID', action='store_true')
-    parser.add_argument('--num_workers', default=8, type=int) # org 4
+    parser.add_argument('--num_workers', default=4, type=int) # org 4
 
     # Model 
     parser.add_argument('--dropout', type=float, default=0.1)
     parser.add_argument('--embed_dims', type=int, default=512)
     parser.add_argument('--num_decoder_layer', type=int, default=6)
-    parser.add_argument('--num_queries', default=100, type=int,
+    parser.add_argument('--num_queries', default=400, type=int,
                         help="Number of query slots")
     parser.add_argument('--num_heads', default=4, type=int,
                         help="Number of heads of MultiHeadAttn")

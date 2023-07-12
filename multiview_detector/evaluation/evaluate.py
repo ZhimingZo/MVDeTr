@@ -21,7 +21,6 @@ import numpy as np
 def evaluate(res_fpath, gt_fpath, dataset='wildtrack'):
     try:
         import matlab.engine
-
         eng = matlab.engine.start_matlab()
         eng.cd('multiview_detector/evaluation/motchallenge-devkit')
         res = eng.evaluateDetection(res_fpath, gt_fpath, dataset)

@@ -30,7 +30,7 @@ class PedTRHead(nn.Module):
 
         self.embed_dims = args.embed_dims  # 512 
         self.out_dims_coord =  2
-        self.out_dims_class =  2
+        self.out_dims_class =  3
         self.num_decoder_layer=args.num_decoder_layer # 6 
  
         self.transformer = PedTRTransformer(args)
