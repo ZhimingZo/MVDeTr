@@ -17,6 +17,8 @@ from multiview_detector.utils.image_utils import add_heatmap_to_image, img_color
 import math
 import sys
 import torch.distributed as dist
+import numpy as np
+import cv2 
 
 class BaseTrainer(object):
     def __init__(self):
@@ -109,7 +111,6 @@ class PedTRTrainer(BaseTrainer):
                 print(f'Train Epoch: {epoch}, BboxLoss: {loss_epo_box:.6f}, ClsLoss:{loss_epo_cls:.6f}')
                 self.loss_writer.add_scalar("boxes loss x epoch", loss_epo_box * self.world_size, epoch)
                 self.loss_writer.add_scalar("classs loss x epoch", loss_epo_cls * self.world_size, epoch)
-        self.loss_writer.close()
         return losses / len(self.dataloader_train)
     @torch.no_grad()
     def test(self, res_fpath=None, visualize=False):
@@ -120,11 +121,12 @@ class PedTRTrainer(BaseTrainer):
         t0 = time.time()
         print("Evaluating...")
         for batch_idx, (imgs, proj_mats, targets, frame) in enumerate(self.dataloader_test):
+            #print(frame)
             imgs = imgs.to(self.device)
             proj_mats=proj_mats.to(self.device)
             targets = [{k: v.to(self.device).squeeze() for k, v in targets.items()}]
             outputs  = self.model(img=imgs, proj_mat=proj_mats)[-1]
-
+         
             #probas = F.sigmoid(outputs['pred_logits'])[0]
             probas = F.softmax(outputs['pred_logits'], dim=-1)[0]
             index = torch.nonzero((probas[..., 1] > 0.6).to(torch.int32)).flatten() 

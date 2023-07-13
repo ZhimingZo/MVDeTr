@@ -1,13 +1,13 @@
 import torch 
 import torch.nn as nn 
+import torch.nn.functional as F
 from multiview_detector.models.pedtr.utils.query_generator import Query_generator
 from multiview_detector.models.pedtr.backbones.resnet import resnet18
 from multiview_detector.models.pedtr.dense_heads.pedtr_head import PedTRHead
+from multiview_detector.loss.pedtr.matcher_focal_loss import * 
+from multiview_detector.loss.pedtr.criterion_focal_loss import SetCriterion_focal
 from multiview_detector.loss.pedtr.matcher import * 
-from multiview_detector.loss.pedtr.criterion import SetCriterion
-
-#from multiview_detector.loss.pedtr.matcher_focal_loss import * 
-#from multiview_detector.loss.pedtr.criterion_focal_loss import SetCriterion
+from multiview_detector.loss.pedtr.criterion import SetCriterion_ce
 
 class PedTR(nn.Module):
     def __init__(self, args):
@@ -15,11 +15,13 @@ class PedTR(nn.Module):
 
         self.num_query = args.num_queries
         self.embed_dims = args.embed_dims
+        self.upsample_shape = list(map(lambda x: int(x / args.img_reduce), args.org_img_shape))
 
         self.backbone = nn.Sequential(*list(resnet18(pretrained=True,
                                                      replace_stride_with_dilation=[False, True, True]).children())[:-2])
         
         self.query_generator = Query_generator(img_backbone=self.backbone, num_query=self.num_query, dims=self.embed_dims)
+
 
   
         self.detect_head = PedTRHead(args)
@@ -29,7 +31,11 @@ class PedTR(nn.Module):
         assert len(img.shape) == 5
         B, N, C, H, W = img.shape
         img = img.reshape(B*N, C, H, W) #7, 3, 1080, 1920 
-        img_features = self.backbone(img)  # torch.Size([7, 512, 135, 240])
+        img_features = self.backbone(img)  #  torch.Size([7, 512, 90, 160]) after resize 
+       
+        # up_sample feature map 
+        img_features = F.interpolate(img_features, self.upsample_shape, mode='bilinear')
+
         # generate query (either view & ray encoded or normal query) and learnable positional embedding 
         query, query_pos = self.query_generator(img=img, ray=cam_rays) # torch.Size([100, 512]) torch.Size([100, 512])        
         # output the final output from detect head 
@@ -43,14 +49,17 @@ def build_model(args):
     device = torch.device(args.device)
     # build_model  
     model = PedTR(args).to(device)
-    # build matcher 
-    matcher = build_matcher(args)
-
     weight_dict = {'loss_ce': args.ce_loss_coef, 'loss_bbox': args.bbox_loss_coef}
     losses = ['labels', 'boxes']
-    # build criterion
-    criterion = SetCriterion(num_classes=2, matcher=matcher, weight_dict=weight_dict,
+    # build matcher & criterion
+    if args.loss == 'ce':
+        matcher = build_matcher_ce(args)
+        criterion = SetCriterion_ce(num_classes=2, matcher=matcher, weight_dict=weight_dict,
                             losses=losses, eos_coef=args.eos_coef)
+    else:
+        matcher = build_matcher_focal(args)
+        criterion = SetCriterion_focal(num_classes=2, matcher=matcher, weight_dict=weight_dict,
+                            losses=losses)
     criterion.to(device)
     return model, criterion
 

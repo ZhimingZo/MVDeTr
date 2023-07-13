@@ -5,7 +5,7 @@ from multiview_detector.loss.pedtr.matcher import *
 
 
 
-class SetCriterion(nn.Module):
+class SetCriterion_ce(nn.Module):
     
     """ This class computes the loss for DETR.
     The process happens in two steps:

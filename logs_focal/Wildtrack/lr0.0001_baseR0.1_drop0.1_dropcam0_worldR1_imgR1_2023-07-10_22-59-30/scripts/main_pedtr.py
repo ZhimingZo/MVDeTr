@@ -18,7 +18,7 @@ from multiview_detector.models.pedtr.detectors.pedtr import build_model
 from multiview_detector.utils.logger import Logger
 from multiview_detector.utils.draw_curve import draw_curve
 from multiview_detector.utils.str2bool import str2bool
-from multiview_detector.trainer_pedtr import PedTRTrainer
+from multiview_detector.trainer_pedtr_focal import PedTRTrainer
 from torchvision import transforms as T
 import warnings 
 

@@ -30,9 +30,8 @@ class PedTRHead(nn.Module):
 
         self.embed_dims = args.embed_dims  # 512 
         self.out_dims_coord =  2
-        self.out_dims_class =  3
+        self.out_dims_class =  3 if args.loss == 'ce' else 2
         self.num_decoder_layer=args.num_decoder_layer # 6 
- 
         self.transformer = PedTRTransformer(args)
         
         self.coord_regressor = nn.Sequential(
@@ -77,11 +76,32 @@ class PedTRHead(nn.Module):
             tmp = tmp.sigmoid() 
             output_coord = tmp
 
+            ''' 
+                Viz 
+            '''
+            '''
+            import cv2 
+            import numpy as np
+            reference_points_inter_draw = tmp.cpu().numpy()
+            reference_points_inter_draw[:, 0] *= 480 
+            reference_points_inter_draw[:, 1] *= 1440 
+            print(reference_points_inter_draw.shape)
+            map_gt = np.zeros((480, 1440, 3), dtype=np.uint8)
+            for point in reference_points_inter_draw:
+                #print(point[0])
+                cv2.circle(map_gt, (int(point[1]), int(point[0])), 15, (255, 255, 255), -1)
+            #cv2.imshow("reference_init", map_gt)
+            cv2.imwrite("ce_100_query_train_epoch_best_inter_ref_"+str(lvl)+".png", map_gt)
+            '''
+            
+
+
             output_class = output_class.unsqueeze(0) 
             output_coord = output_coord.unsqueeze(0) 
             
             out_lvl = {'pred_logits':  output_class, 'pred_boxes': output_coord}
             out.append(out_lvl)
+        #exit()  
         return out
     
 def test(): 

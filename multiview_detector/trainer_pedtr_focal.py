@@ -119,21 +119,25 @@ class PedTRTrainer(BaseTrainer):
         t0 = time.time()
         print("Evaluating...")
         for batch_idx, (imgs, proj_mats, targets, frame) in enumerate(self.dataloader_test):
+            print(frame)
             imgs = imgs.to(self.device)
             proj_mats=proj_mats.to(self.device)
             targets = [{k: v.to(self.device).squeeze() for k, v in targets.items()}]
             outputs  = self.model(img=imgs, proj_mat=proj_mats)[-1]
 
             probas = F.sigmoid(outputs['pred_logits'])[0]
-            topk_values, topk_indexes = torch.topk(probas, 100, dim=0)
-            topk_indexes = torch.unique(topk_indexes.flatten())
-            index = torch.nonzero((probas[topk_indexes, 1] > 0.6).to(torch.int32)).flatten() # org 0.6 
+            probas2 = F.softmax(outputs['pred_logits'], dim=-1)[0]
+
+            topk_values, topk_indexes = torch.topk(probas2[..., 1], 100, dim=0)
+            #topk_indexes = torch.unique(topk_indexes.flatten())
+            index = torch.nonzero((probas2[topk_indexes, 1] > 0.6).to(torch.int32)).flatten() # org 0.6 
             index = topk_indexes[index]
-            score = probas[index, 0] 
+            score = probas2[index, 1] 
             boxes = outputs['pred_boxes'][0]
             boxes = boxes[index]
             boxes[:, 0] = (boxes[:, 0] * self.dataloader_test.dataset.world_grid_shape[0]).long()
             boxes[:, 1] = (boxes[:, 1] * self.dataloader_test.dataset.world_grid_shape[1]).long()
+            print(boxes.shape[0], targets[0]['boxes'].shape[0], score)
             res = boxes.cpu()
             res = torch.concat((torch.ones(boxes.shape[0]).unsqueeze(1)*frame.cpu(), res), axis=1)
             res_list.append(res)

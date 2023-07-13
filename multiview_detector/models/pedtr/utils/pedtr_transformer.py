@@ -39,6 +39,7 @@ class PedTRTransformer(nn.Module):
         '''
         import numpy as np
         import cv2 
+        
         reference_points_init_draw = reference_points_init.cpu().numpy()
         reference_points_init_draw[:, 0] *= 480 
         reference_points_init_draw[:, 1] *= 1440 
@@ -48,24 +49,27 @@ class PedTRTransformer(nn.Module):
             #print(point[0])
             cv2.circle(map_gt, (int(point[1]), int(point[0])), 15, (0, 0, 255), -1)
         #cv2.imshow("reference_init", map_gt)
-        #cv2.imwrite("epoch_10_init_ref.png", map_gt)
-        '''
+        cv2.imwrite("ce_100_query_train_epoch_best_init_ref.png", map_gt)
         #exit()
+        '''
         inter_queries, inter_references_points = self.decoder(img_feats=img_features, proj_mat=proj_mat, query=query, query_pos=query_pos, \
                                                               reference_points=reference_points_init, reg_branches=reg_branches)  
 
         # viz for output coord
         '''
-        reference_points_inter_draw = inter_references_point.cpu().numpy()
-        reference_points_inter_draw[:, 0] *= 480 
-        reference_points_inter_draw[:, 1] *= 1440 
-        print(reference_points_inter_draw.shape)
-        
-        for point in reference_points_inter_draw:
-            #print(point[0])
-            cv2.circle(map_gt, (int(point[1]), int(point[0])), 15, (255, 255, 255), -1)
-        #cv2.imshow("reference_init", map_gt)
-        cv2.imwrite("epoch_10_inter_ref_train_.png", map_gt)
+        i = 0 
+        for inter_references_point in inter_references_points:
+            reference_points_inter_draw = inter_references_point.cpu().numpy()
+            reference_points_inter_draw[:, 0] *= 480 
+            reference_points_inter_draw[:, 1] *= 1440 
+            print(reference_points_inter_draw.shape)
+            map_gt = np.zeros((480, 1440, 3), dtype=np.uint8)
+            for point in reference_points_inter_draw:
+                #print(point[0])
+                cv2.circle(map_gt, (int(point[1]), int(point[0])), 15, (255, 255, 255), -1)
+            #cv2.imshow("reference_init", map_gt)
+            cv2.imwrite("ce_100_query_epoch_best_inter_ref_"+str(i)+".png", map_gt)
+            i = i+1 
         exit(0)
         '''
 
@@ -130,8 +134,8 @@ class PedTRTransformerDecoderLayer(nn.Module):
         self.num_heads = args.num_heads # 4 
         self.num_cams = args.num_cams #7 
         self.num_query = args.num_queries # 100
-        self.org_img_res = [1080, 1920]
-        self.grid_shape = [480, 1440]
+        self.org_img_res = args.org_img_shape
+        self.grid_shape = args.world_grid_shape
         # MultiHeadAttn 
         self.multiheadattn_query = nn.MultiheadAttention(self.embed_dims, num_heads=self.num_heads)
 

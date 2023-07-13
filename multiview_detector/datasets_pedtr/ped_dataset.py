@@ -15,8 +15,7 @@ from torch.utils.data import DataLoader
 
 class PedestrianDataset(Dataset): 
 
-    def __init__(self, args, root, org_img_shape, world_grid_shape,  
-                transform, intrinsic_camera_matrix_filenames, 
+    def __init__(self, args, root, transform, intrinsic_camera_matrix_filenames, 
                  extrinsic_camera_matrix_filenames, is_train): 
         super().__init__()
        
@@ -26,7 +25,7 @@ class PedestrianDataset(Dataset):
         self.reID, self.grid_reduce, self.img_reduce = args.reID, args.world_grid_reduce, args.img_reduce
         self.root, self.num_cam, self.num_frame = root, args.num_cams, args.num_frames
         self.train_ratio = args.train_ratio
-        self.img_shape, self.world_grid_shape = org_img_shape, world_grid_shape  # H,W; N_row,N_col
+        self.img_shape, self.world_grid_shape = args.org_img_shape, args.world_grid_shape  # H,W; N_row,N_col
         self.reducedgrid_shape = list(map(lambda x: int(x / self.grid_reduce), self.world_grid_shape))
         self.indexing = 'ij'
         self.transform =  transform
@@ -193,6 +192,7 @@ def get_worldcoord_from_worldgrid(worldgrid):
 
 def build_dataset(isTrain, args):
     transform = T.Compose([
+        T.Resize(args.img_resize),
         T.ToTensor(),
         T.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),]
     )
@@ -205,11 +205,11 @@ def build_dataset(isTrain, args):
         extrinsic_camera_matrix_filenames = ['extr_CVLab1.xml', 'extr_CVLab2.xml', 'extr_CVLab3.xml', 'extr_CVLab4.xml',
                                      'extr_IDIAP1.xml', 'extr_IDIAP2.xml', 'extr_IDIAP3.xml']
         if isTrain: 
-            train_set = PedestrianDataset(args=args, root=dataset_root, org_img_shape=[1080, 1920], world_grid_shape=[480, 1440], transform=transform, intrinsic_camera_matrix_filenames=intrinsic_camera_matrix_filenames, 
+            train_set = PedestrianDataset(args=args, root=dataset_root, transform=transform, intrinsic_camera_matrix_filenames=intrinsic_camera_matrix_filenames, 
                  extrinsic_camera_matrix_filenames=extrinsic_camera_matrix_filenames, is_train=True)
             return train_set
-        else: 
-            test_set = PedestrianDataset(args=args, root=dataset_root, org_img_shape=[1080, 1920], world_grid_shape=[480, 1440], transform=transform, intrinsic_camera_matrix_filenames=intrinsic_camera_matrix_filenames, 
+        else:    
+            test_set = PedestrianDataset(args=args, root=dataset_root, transform=transform, intrinsic_camera_matrix_filenames=intrinsic_camera_matrix_filenames, 
                  extrinsic_camera_matrix_filenames=extrinsic_camera_matrix_filenames, is_train=False)
             return test_set
     elif 'MultiviewX' in args.dataset:
