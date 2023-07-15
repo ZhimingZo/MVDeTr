@@ -99,7 +99,7 @@ class PedTRTransformerDecoder(nn.Module):
         self.return_intermediate = return_intermediate
         self.num_decoder_layer = args.num_decoder_layer # 6 
         self.decoder_layer = PedTRTransformerDecoderLayer(args) if not args.deform else PedTRDeformTransformerDecoderLayer(args) 
-        self.layers = nn.ModuleList(self.decoder_layer for i in range(self.num_decoder_layer))  
+        self.layers = nn.ModuleList([self.decoder_layer for i in range(self.num_decoder_layer)])  
     def forward(self, img_feats, proj_mat, query, query_pos, reference_points, reg_branches=None):    
         output = query 
         intermediate = []
@@ -131,7 +131,7 @@ class PedTRTransformerDecoder(nn.Module):
     
 
 class PedTRTransformerDecoderLayer(nn.Module):
-    def __init__(self, args=None): 
+    def __init__(self, args=None, img_transformer_layer_num=4): 
         super(PedTRTransformerDecoderLayer, self).__init__()
         
         self.embed_dims = args.embed_dims # 512 
@@ -141,14 +141,14 @@ class PedTRTransformerDecoderLayer(nn.Module):
         self.num_query = args.num_queries # 100
         self.org_img_res = args.org_img_shape
         self.grid_shape = args.world_grid_shape
+ 
         # MultiHeadAttn 
         self.multiheadattn_query = nn.MultiheadAttention(self.embed_dims, num_heads=self.num_heads)
 
         # image feature sampling 
-        self.img_feature_transformer = ImgFeatureTransformer(dim=self.embed_dims, depth=4, heads=self.num_heads, mlp_dim=self.embed_dims, dropout=self.dropout_ratio)
-
+        self.img_feature_transformer = ImgFeatureTransformer(dim=self.embed_dims, depth=img_transformer_layer_num, heads=self.num_heads, mlp_dim=self.embed_dims, dropout=self.dropout_ratio)
         # feedforward
-        '''
+        
         self.ffns_query = nn.Sequential(
             nn.Linear(self.embed_dims, self.embed_dims), 
             nn.ReLU(), 
@@ -156,11 +156,11 @@ class PedTRTransformerDecoderLayer(nn.Module):
             nn.Linear(self.embed_dims, self.embed_dims), 
             nn.Dropout(p=self.dropout_ratio), 
         )
-        '''
+        
         
         self.output_proj = nn.Linear(self.embed_dims, self.embed_dims)
         # postional encoder 
-        '''
+        
         self.position_encoder = nn.Sequential(
             nn.Linear(2, self.embed_dims),
             nn.LayerNorm(self.embed_dims),
@@ -169,11 +169,10 @@ class PedTRTransformerDecoderLayer(nn.Module):
             nn.LayerNorm(self.embed_dims), 
             nn.ReLU() 
         )
-        '''
         # Layer norm 
         self.layerNorm1 = nn.LayerNorm(self.embed_dims)
-        #self.layerNorm2 = nn.LayerNorm(self.embed_dims)
-        #self.layerNorm3 = nn.LayerNorm(self.embed_dims)
+        self.layerNorm2 = nn.LayerNorm(self.embed_dims)
+        self.layerNorm3 = nn.LayerNorm(self.embed_dims)
         self.dropout = nn.Dropout(self.dropout_ratio)
         self.reset_parameters()
 
@@ -207,7 +206,7 @@ class PedTRTransformerDecoderLayer(nn.Module):
         mask = mask.repeat(self.num_heads, 1, 1).repeat(1, self.num_cams, 1)  # 400, 7, 7
         
         org_mask = org_mask.view(self.num_query, self.num_cams, -1)
-        output = self.img_feature_transformer(x=output, mask=mask) * org_mask  # torch.Size([100, 7, 512])
+        output = self.img_feature_transformer(output, mask=mask) * org_mask  # torch.Size([100, 7, 512])
         output = torch.sum(output, dim=1, keepdim=False)/ torch.sum(org_mask, dim=1, keepdim=True).squeeze(-1) # torch.Size([100, 1, 512])
         ''' 
         output = self.img_feature_transformer(x=output, mask=mask) # torch.Size([100, 7, 512])
@@ -215,20 +214,18 @@ class PedTRTransformerDecoderLayer(nn.Module):
         '''
 
         output = self.output_proj(output) # torch.Size([1, 100, 512])
-        #pos_feat = self.position_encoder(inverse_sigmoid(reference_points_3d))
-        #query = self.dropout(output) + query + pos_feat 
-        #query = self.layerNorm2(query)
+        pos_feat = self.position_encoder(inverse_sigmoid(reference_points_3d))
+        query = self.dropout(output) + query + pos_feat 
+        query = self.layerNorm2(query)
 
         # ffn projection 
-        #query = self.dropout(self.ffns_query(query)) + query
-        #query = self.layerNorm3(query)
+        query = self.dropout(self.ffns_query(query)) + query
+        query = self.layerNorm3(query)
         #print(query.shape)
          
-        return query + output 
+        return query  
     
     def feature_sampling(self, ground_coordinates, proj_mat, img_feats):
-
-
         assert len(proj_mat.shape) == 4 and proj_mat.shape[1] == self.num_cams
 
         reference_points_ground = ground_coordinates.clone()
@@ -267,6 +264,9 @@ class PedTRTransformerDecoderLayer(nn.Module):
         #sampled_feat = sampled_feat.view(1, self.num_cams, C, self.num_query) # 1, 512, 200, N, 1
         return reference_points_ground, sampled_feat, mask
     
+
+
+
 class FeedForward(nn.Module):
     def __init__(self, dim, hidden_dim, output_dim, dropout=0.1):
         super().__init__()
@@ -287,12 +287,11 @@ class FeedForward(nn.Module):
     def forward(self, x):
         return self.mlp(x) 
     
-class ImgFeatureTransformer(nn.Module):
-    def __init__(self, dim, depth, heads, mlp_dim, dropout):
-        super(ImgFeatureTransformer, self).__init__() 
+class ImgFeatureTransformerLayer(nn.Module):
+    def __init__(self, dim, heads, mlp_dim, dropout):
+        super(ImgFeatureTransformerLayer, self).__init__() 
         self.layers = nn.ModuleList([])
-        for _  in range(depth):
-            self.layers.append(nn.ModuleList([
+        self.layers.append(nn.ModuleList([
                 nn.LayerNorm(dim),
                 nn.MultiheadAttention(embed_dim=dim, num_heads=heads, dropout=dropout, batch_first=True), 
                 nn.LayerNorm(dim),
@@ -315,6 +314,16 @@ class ImgFeatureTransformer(nn.Module):
             org_x = x
         return x 
 
+class ImgFeatureTransformer(nn.Module):
+    def __init__(self, dim, depth, heads, mlp_dim, dropout):
+        super(ImgFeatureTransformer, self).__init__() 
+        self.layers = nn.ModuleList([ImgFeatureTransformerLayer(dim, heads, mlp_dim, dropout) for i in range(depth)])
+    def forward(self, x, mask): 
+        output = x
+        for layer in self.layers: 
+            output = layer(x=output, mask=mask)
+        return output
+
 
 def test():
     
@@ -322,11 +331,10 @@ def test():
     
     imgs = torch.rand((100, 7, 512))
     mask = torch.rand((400, 7, 7))
-    ImgFeatureTransformerModel = ImgFeatureTransformer(dim=512, depth=3, heads=4, mlp_dim=512, dropout=0.1)
+    ImgFeatureTransformerModel = ImgFeatureTransformerLayer(dim=512, depth=3, heads=4, mlp_dim=512, dropout=0.1)
     print(ImgFeatureTransformerModel)
     print(ImgFeatureTransformerModel(imgs, mask=mask).shape) # [100, 512]
     
-
     # decoder layer 
     
     '''

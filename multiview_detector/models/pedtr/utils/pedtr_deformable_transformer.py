@@ -130,7 +130,7 @@ class PedTRDeformTransformerDecoder(nn.Module):
     
 
 class PedTRDeformTransformerDecoderLayer(nn.Module):
-    def __init__(self, args=None, num_points=4): 
+    def __init__(self, args=None, num_points=4, img_transformer_layer_num=4): 
         super(PedTRDeformTransformerDecoderLayer, self).__init__()
         '''
         self.embed_dims = args.embed_dims # 512 
@@ -168,9 +168,7 @@ class PedTRDeformTransformerDecoderLayer(nn.Module):
         )
 
         # image feature sampling 
-        self.img_feature_transformer = ImgFeatureTransformer(dim=self.embed_dims, depth=4, heads=self.num_heads, mlp_dim=self.embed_dims, dropout=self.dropout_ratio)
-
-        # feedforward
+        self.img_feature_transformer = ImgFeatureTransformer(dim=self.embed_dims, depth=img_transformer_layer_num, heads=self.num_heads, mlp_dim=self.embed_dims, dropout=self.dropout_ratio)
         self.ffns_query = nn.Sequential(
             nn.Linear(self.embed_dims, self.embed_dims), 
             nn.ReLU(), 
@@ -332,12 +330,11 @@ class FeedForward(nn.Module):
     def forward(self, x):
         return self.mlp(x) 
     
-class ImgFeatureTransformer(nn.Module):
-    def __init__(self, dim, depth, heads, mlp_dim, dropout):
-        super(ImgFeatureTransformer, self).__init__() 
+class ImgFeatureTransformerLayer(nn.Module):
+    def __init__(self, dim, heads, mlp_dim, dropout):
+        super(ImgFeatureTransformerLayer, self).__init__() 
         self.layers = nn.ModuleList([])
-        for _  in range(depth):
-            self.layers.append(nn.ModuleList([
+        self.layers.append(nn.ModuleList([
                 nn.LayerNorm(dim),
                 nn.MultiheadAttention(embed_dim=dim, num_heads=heads, dropout=dropout, batch_first=True), 
                 nn.LayerNorm(dim),
@@ -359,6 +356,17 @@ class ImgFeatureTransformer(nn.Module):
             x = ff(norm2(x)) + x
             org_x = x
         return x 
+
+class ImgFeatureTransformer(nn.Module):
+    def __init__(self, dim, depth, heads, mlp_dim, dropout):
+        super(ImgFeatureTransformer, self).__init__() 
+        self.layers = nn.ModuleList([ImgFeatureTransformerLayer(dim, heads, mlp_dim, dropout) for i in range(depth)])
+    def forward(self, x, mask): 
+        output = x
+        for layer in self.layers: 
+            output = layer(x=output, mask=mask)
+        return output
+
 
 
 def test():
