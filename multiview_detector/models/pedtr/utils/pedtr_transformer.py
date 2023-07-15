@@ -2,6 +2,9 @@ import torch
 import torch.nn as nn 
 import torch.nn.functional as F
 
+from multiview_detector.models.pedtr.utils.pedtr_deformable_transformer import PedTRDeformTransformerDecoderLayer
+
+
 def inverse_sigmoid(x, eps=1e-5):
     """Inverse function of sigmoid.
     Args:
@@ -31,6 +34,9 @@ class PedTRTransformer(nn.Module):
         self.decoder = PedTRTransformerDecoder(args)
         self.referece_points_init  = nn.Linear(self.embed_dims, 2)
     
+        nn.init.xavier_uniform_(self.referece_points_init.weight)
+        nn.init.zeros_(self.referece_points_init.bias)
+
     def forward(self, img_features, proj_mat, query, query_pos, reg_branches): 
 
         reference_points_init = self.referece_points_init(query).sigmoid()
@@ -92,9 +98,8 @@ class PedTRTransformerDecoder(nn.Module):
         super(PedTRTransformerDecoder, self).__init__() 
         self.return_intermediate = return_intermediate
         self.num_decoder_layer = args.num_decoder_layer # 6 
-        self.decoder_layer = PedTRTransformerDecoderLayer(args) 
+        self.decoder_layer = PedTRTransformerDecoderLayer(args) if not args.deform else PedTRDeformTransformerDecoderLayer(args) 
         self.layers = nn.ModuleList(self.decoder_layer for i in range(self.num_decoder_layer))  
-
     def forward(self, img_feats, proj_mat, query, query_pos, reference_points, reg_branches=None):    
         output = query 
         intermediate = []
@@ -143,6 +148,7 @@ class PedTRTransformerDecoderLayer(nn.Module):
         self.img_feature_transformer = ImgFeatureTransformer(dim=self.embed_dims, depth=4, heads=self.num_heads, mlp_dim=self.embed_dims, dropout=self.dropout_ratio)
 
         # feedforward
+        '''
         self.ffns_query = nn.Sequential(
             nn.Linear(self.embed_dims, self.embed_dims), 
             nn.ReLU(), 
@@ -150,9 +156,11 @@ class PedTRTransformerDecoderLayer(nn.Module):
             nn.Linear(self.embed_dims, self.embed_dims), 
             nn.Dropout(p=self.dropout_ratio), 
         )
+        '''
         
         self.output_proj = nn.Linear(self.embed_dims, self.embed_dims)
         # postional encoder 
+        '''
         self.position_encoder = nn.Sequential(
             nn.Linear(2, self.embed_dims),
             nn.LayerNorm(self.embed_dims),
@@ -161,13 +169,20 @@ class PedTRTransformerDecoderLayer(nn.Module):
             nn.LayerNorm(self.embed_dims), 
             nn.ReLU() 
         )
-
+        '''
         # Layer norm 
         self.layerNorm1 = nn.LayerNorm(self.embed_dims)
-        self.layerNorm2 = nn.LayerNorm(self.embed_dims)
-        self.layerNorm3 = nn.LayerNorm(self.embed_dims)
+        #self.layerNorm2 = nn.LayerNorm(self.embed_dims)
+        #self.layerNorm3 = nn.LayerNorm(self.embed_dims)
         self.dropout = nn.Dropout(self.dropout_ratio)
+        self.reset_parameters()
 
+    def reset_parameters(self):
+        for module in self.modules():
+            if isinstance(module, nn.Linear):
+                nn.init.xavier_uniform_(module.weight)
+                if module.bias is not None:
+                    nn.init.zeros_(module.bias)
     def forward(self, img_feats, proj_mat, query, query_pos, reference_points):
         
         #inp_residual = query 
@@ -175,38 +190,41 @@ class PedTRTransformerDecoderLayer(nn.Module):
             query = query + query_pos  # torch.Size([100, 512])
             #print(query.shape, query_pos.shape)
         # query multi-head attention 
+       
          
         query_out, _ = self.multiheadattn_query(query, query, query)
         query = self.dropout(query_out) + query
         query = self.layerNorm1(query) # print(query.shape)    
 
         # update query and extracted img feature attention 
-        reference_points_3d, output, mask = self.feature_sampling(reference_points, proj_mat, img_feats)
+        reference_points_3d, output, org_mask = self.feature_sampling(reference_points, proj_mat, img_feats)
         #print(reference_points_3d.shape, output.shape, mask.shape) # torch.Size([100, 3]) torch.Size([1, 512, 100, 7, 1]) torch.Size([1, 1, 100, 7, 1])
         
         output = torch.nan_to_num(output) # torch.Size([1, 512, 200, 7, 1])
-        mask = ~mask
+        mask = ~org_mask
         output = output.view(self.num_query, self.num_cams, -1)
         mask = mask.view(self.num_query, 1, self.num_cams)
         mask = mask.repeat(self.num_heads, 1, 1).repeat(1, self.num_cams, 1)  # 400, 7, 7
-
         
+        org_mask = org_mask.view(self.num_query, self.num_cams, -1)
+        output = self.img_feature_transformer(x=output, mask=mask) * org_mask  # torch.Size([100, 7, 512])
+        output = torch.sum(output, dim=1, keepdim=False)/ torch.sum(org_mask, dim=1, keepdim=True).squeeze(-1) # torch.Size([100, 1, 512])
+        ''' 
         output = self.img_feature_transformer(x=output, mask=mask) # torch.Size([100, 7, 512])
         output = torch.mean(output, dim=1, keepdim=False) # torch.Size([100, 1, 512])
-        #output = torch.permute(output, (1, 0, 2)) # torch.Size([1, 100, 512])
+        '''
+
         output = self.output_proj(output) # torch.Size([1, 100, 512])
-         
-        pos_feat = self.position_encoder(inverse_sigmoid(reference_points_3d))
-         
-        query = self.dropout(output) + query + pos_feat 
-        query = self.layerNorm2(query)
+        #pos_feat = self.position_encoder(inverse_sigmoid(reference_points_3d))
+        #query = self.dropout(output) + query + pos_feat 
+        #query = self.layerNorm2(query)
 
         # ffn projection 
-        query = self.dropout(self.ffns_query(query)) + query
-        query = self.layerNorm3(query)
+        #query = self.dropout(self.ffns_query(query)) + query
+        #query = self.layerNorm3(query)
         #print(query.shape)
          
-        return query
+        return query + output 
     
     def feature_sampling(self, ground_coordinates, proj_mat, img_feats):
 
@@ -259,6 +277,13 @@ class FeedForward(nn.Module):
             nn.Linear(hidden_dim, output_dim),
             nn.Dropout(dropout), 
         )
+        self.reset_parameters()
+    def reset_parameters(self):
+        for module in self.modules():
+            if isinstance(module, nn.Linear):
+                nn.init.xavier_uniform_(module.weight)
+                if module.bias is not None:
+                    nn.init.zeros_(module.bias)
     def forward(self, x):
         return self.mlp(x) 
     
@@ -273,20 +298,25 @@ class ImgFeatureTransformer(nn.Module):
                 nn.LayerNorm(dim),
                 FeedForward(dim, mlp_dim, dim, dropout=dropout),
             ]))
+        self.reset_parameters()
+    def reset_parameters(self):
+        for module in self.modules():
+            if isinstance(module, nn.Linear):
+                nn.init.xavier_uniform_(module.weight)
+                if module.bias is not None:
+                    nn.init.zeros_(module.bias)
     def forward(self, x, mask=None):
         org_x = x 
         for norm1, attn, norm2, ff in self.layers:
             x = norm1(x)
             x, _ = attn(query=x, key=x, value=x, attn_mask=mask) 
             x = x + org_x
-            x = norm2(x)
-            x = ff(x) + x
+            x = ff(norm2(x)) + x
             org_x = x
         return x 
 
 
 def test():
-    
     
     # test extracted img feature for MultiHeadAttn 
     

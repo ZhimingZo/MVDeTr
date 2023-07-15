@@ -132,7 +132,7 @@ class PedTRDeformTransformerDecoder(nn.Module):
 class PedTRDeformTransformerDecoderLayer(nn.Module):
     def __init__(self, args=None, num_points=4): 
         super(PedTRDeformTransformerDecoderLayer, self).__init__()
-        
+        '''
         self.embed_dims = args.embed_dims # 512 
         self.dropout_ratio = args.dropout # 0.1 
         self.num_heads = args.num_heads # 4 
@@ -146,11 +146,11 @@ class PedTRDeformTransformerDecoderLayer(nn.Module):
         self.dropout_ratio = 0.1 
         self.num_heads = 4 
         self.num_cams = 7 
-        self.num_query = 100
+        self.num_query = 400
         self.org_img_res = [1080, 1920] 
         self.grid_shape = [480, 1440] 
         self.num_points = num_points
-        '''
+        
         # MultiHeadAttn 
         self.multiheadattn_query = nn.MultiheadAttention(self.embed_dims, num_heads=self.num_heads)
         # deformable feature fusion 
@@ -215,10 +215,14 @@ class PedTRDeformTransformerDecoderLayer(nn.Module):
         query = self.layerNorm1(query) # print(query.shape)    
         
         #generate deformable reference points offset 
-        offset = self.deformable_reference_offset(query) # 100 x 8   
-        offset = offset.view(-1, 2) # 400 x 2
-        reference_points_deform = inverse_sigmoid(reference_points).repeat(4, 1) + offset #(400, 2)
-        reference_points_deform = reference_points_deform.sigmoid()
+        offset = self.deformable_reference_offset(query) # 400 x 8   
+        offset = offset.view(self.num_query, self.num_points, 2) # 400 x 4 X 2
+        #print(offset.shape)
+        #print(reference_points.unsqueeze(1).repeat(1, 4, 1).shape)
+        #exit()
+        #print(inverse_sigmoid(reference_points).unsqueeze(1).repeat(1, 4, 1).shape) 400 * 4 * 2
+        reference_points_deform = (inverse_sigmoid(reference_points).unsqueeze(1).repeat(1, 4, 1)) + offset #(400, 2)
+        reference_points_deform = reference_points_deform.sigmoid() 
         attn_mask = self.deformable_features_fusion_attention_mask(query) # num_query x 4
         attn_mask = F.softmax(attn_mask, dim=-1)
         '''
@@ -228,39 +232,41 @@ class PedTRDeformTransformerDecoderLayer(nn.Module):
         print("attn_mask: ", attn_mask.shape) # torch.Size([100, 4])
         '''
         # update query and extracted img feature attention 
-        reference_points_3d, output, mask = self.feature_sampling(reference_points_deform, proj_mat, img_feats)
+        reference_points_deform, output, mask_org = self.feature_sampling(reference_points_deform, proj_mat, img_feats)
+
         output = torch.nan_to_num(output)
-        mask = ~mask
-        #print("ref_3d: ", reference_points_3d.shape)  # torch.Size([400, 2])
-        #print("output: ", output.shape) # torch.Size([400, 7, 512, 1])
-        #print("mask: ", mask.shape) #  mask:   torch.Size([4, 100, 1, 7])
-      
-        output = output.view(self.num_points * self.num_query, self.num_cams, -1) # 400 x 7 x 512
-        mask = mask.repeat(1, self.num_heads, 1, 1).repeat(1, 1, self.num_cams, 1)  # 400, 7, 7
-        mask = mask.view(-1, self.num_cams, self.num_cams)
+        mask = ~mask_org
+        #print("ref_3d: ", reference_points_deform.shape)  # torch.Size([400, 4, 2])
+        #print("output: ", output.shape) # torch.Size([1600, 7, 512, 1])
+        #print("mask: ", mask.shape) #  mask:   torch.Size([4, 400, 1, 7])
+        
+        output = output.view(self.num_points * self.num_query, self.num_cams, -1) # 1600 x 7 x 512
+        mask = mask.repeat(1, self.num_heads, 1, 1).repeat(1, 1, self.num_cams, 1)  # torch.Size([4, 1600, 7, 7])
+        mask = mask.view(-1, self.num_cams, self.num_cams)  #torch.Size([6400, 7, 7])
+        
         #print("output: ", output.shape) # torch.Size([400, 7, 512])
         #print("mask: ", mask.shape) #  mask:  torch.Size([1600, 7, 7])
-
-        output = self.img_feature_transformer(x=output, mask=mask) # torch.Size([400, 7, 512])
-        output = torch.mean(output, dim=1, keepdim=False) # torch.Size([400, 512])
+        # print(mask_org.shape) # torch.Size([4, 400, 1, 7])
+        mask_org = mask_org.reshape(self.num_points * self.num_query, self.num_cams, 1)
+        output = self.img_feature_transformer(x=output, mask=mask) * mask_org # torch.Size([1600, 7, 512])
+        output = torch.sum(output, dim=1, keepdim=False) / torch.sum(mask_org, dim=1, keepdim=True).squeeze(-1)  # torch.Size([400, 512])
         output = output.view(self.num_query, self.num_points, -1) # 100 X 4 x 512 
         attn_mask = attn_mask.view(self.num_query, self.num_points, 1)
         output = output * attn_mask 
-        output = torch.mean(output, dim=1, keepdim=False)
-        
+        output = torch.sum(output, dim=1, keepdim=False)
+     
         #output = self.img_feature_transformer(x=output, mask=mask) # torch.Size([100, 7, 512])
         #output = torch.mean(output, dim=1, keepdim=False) # torch.Size([100, 1, 512])
         #output = torch.permute(output, (1, 0, 2)) # torch.Size([1, 100, 512])
         output = self.output_proj(output) # torch.Size([1, 100, 512])
-        pos_feat = self.position_encoder(inverse_sigmoid(reference_points_3d))
+        pos_feat = self.position_encoder(inverse_sigmoid(reference_points))
         query = self.dropout(output) + query + pos_feat 
         query = self.layerNorm2(query)
 
         # ffn projection 
         query = self.dropout(self.ffns_query(query)) + query
         query = self.layerNorm3(query)
-        #print(query.shape)
-         
+       
         return query
     
     def feature_sampling(self, ground_coordinates, proj_mat, img_feats):
@@ -270,11 +276,12 @@ class PedTRDeformTransformerDecoderLayer(nn.Module):
         reference_points = ground_coordinates.clone() 
         reference_points[..., 0] = reference_points[..., 0] * self.grid_shape[0] #480
         reference_points[..., 1] = reference_points[..., 1] * self.grid_shape[1] #1440
-        reference_points  = torch.cat((reference_points , torch.ones_like(reference_points [..., :1])), dim=-1)
-        
-        img_coord =  proj_mat[0].float() @ reference_points.T # shape torch.Size([7, 3, 100])
-        img_coord = torch.transpose(img_coord, 1, 2) #  shape torch.Size([7, 100, 3])
-        
+        reference_points  = torch.cat((reference_points , torch.ones_like(reference_points [..., :1])), dim=-1) # 400 x 4 x 3
+        reference_points = reference_points.view(self.num_query, self.num_points, 1, 3, 1)
+        proj_mat = proj_mat.view(1, 1, self.num_cams, 3, 3).float()
+
+        #print(reference_points.shape, proj_mat.shape)
+        img_coord =  torch.matmul(proj_mat, reference_points).squeeze(-1) # shape torch.Size([400, 4, 7, 3])
         reference_points_cam = img_coord 
 
         eps = 1e-5
@@ -290,13 +297,17 @@ class PedTRDeformTransformerDecoderLayer(nn.Module):
                  & (reference_points_cam[..., 1:2] > -1.0) 
                  & (reference_points_cam[..., 1:2] < 1.0))
 
-        mask = mask.view(self.num_cams, 1, self.num_query, self.num_points).permute(3, 2, 1, 0)
+        #print(reference_points_cam.shape) # torch.Size([400, 4, 7, 2])
+        #print(mask.shape) # torch.Size([400, 4, 7, 1]) 
+        mask = mask.permute(1, 0, 3, 2) # torch.Size([4, 400, 7, 1]) 
         mask = torch.nan_to_num(mask)
         # feature sampling 
         BN, C, H, W = img_feats.size()
+        #print(reference_points_cam.shape) # torch.Size([400, 4, 7, 2])
+         
         reference_points_cam_lvl = reference_points_cam.view(BN, self.num_query*self.num_points, 1, 2)
-        sampled_feat = F.grid_sample(img_feats, reference_points_cam_lvl, align_corners=False) # torch.Size([7, 512, 400, 1])
-        sampled_feat = sampled_feat.permute(2, 0, 1, 3)
+        sampled_feat = F.grid_sample(img_feats, reference_points_cam_lvl, align_corners=False) # torch.Size([7, 512, 1600, 1])
+        sampled_feat = sampled_feat.permute(2, 0, 1, 3) # 1600 7 512 1
         #sampled_feat = sampled_feat.view(1, self.num_cams, C, self.num_query) # 1, 512, 200, N, 1
         return reference_points_ground, sampled_feat, mask
     
@@ -368,9 +379,9 @@ def test():
     
     PedTRDeformTransformerDecoderLayerModel = PedTRDeformTransformerDecoderLayer()
     #print(PedTRTransformerDecoderLayerModel)
-    reference_points = torch.rand((100, 2))
-    query = torch.rand((100, 512))
-    query_pos = torch.rand((100, 512))
+    reference_points = torch.rand((400, 2))
+    query = torch.rand((400, 512))
+    query_pos = torch.rand((400, 512))
     proj_mat = torch.rand((1, 7, 3, 3))
     img_feats = torch.rand((7, 512, 135, 240))
     out = PedTRDeformTransformerDecoderLayerModel(img_feats=img_feats, proj_mat=proj_mat, query=query, query_pos=query_pos, reference_points=reference_points)
