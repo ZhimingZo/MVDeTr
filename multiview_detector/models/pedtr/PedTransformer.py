@@ -8,11 +8,7 @@ from multiview_detector.loss.pedtr.criterion import SetCriterion
 
 
 
-def init_weight(m):
-        """Default initialization for Parameters of Module."""
-        if isinstance(m, nn.Linear):
-            nn.init.xavier_uniform_(m.weight)
-            nn.init.zeros_(m.bias)
+ 
 
 def ray_encoded_img(img, ray):
     assert len(img.shape) == 5 
@@ -105,6 +101,13 @@ class FeedForward(nn.Module):
             nn.Linear(hidden_dim, output_dim),
             nn.Dropout(dropout), 
         )
+        self.reset_parameters()
+    def reset_parameters(self):
+        for module in self.modules():
+            if isinstance(module, nn.Linear):
+                nn.init.xavier_uniform_(module.weight)
+                if module.bias is not None:
+                    nn.init.zeros_(module.bias)
     def forward(self, x):
         return self.mlp(x) 
     
@@ -119,6 +122,14 @@ class Transformer(nn.Module):
                 FeedForward(dim, mlp_dim, dim, dropout=dropout),
                 nn.LayerNorm(dim),
             ]))
+
+        self.reset_parameters()
+    def reset_parameters(self):
+        for module in self.modules():
+            if isinstance(module, nn.Linear):
+                nn.init.xavier_uniform_(module.weight)
+                if module.bias is not None:
+                    nn.init.zeros_(module.bias)
     def forward(self, x, mask):
         org_x = x 
         for norm1, attn, ff, norm2 in self.layers:

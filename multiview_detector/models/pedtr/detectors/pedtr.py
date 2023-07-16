@@ -15,15 +15,12 @@ class PedTR(nn.Module):
 
         self.num_query = args.num_queries
         self.embed_dims = args.embed_dims
-        self.upsample_shape = list(map(lambda x: int(x / args.img_reduce), args.org_img_shape))
+        self.feat_reduce = args.feat_reduce
+        self.upsample_shape = list(map(lambda x: int(x / self.feat_reduce), args.org_img_shape))
 
         self.backbone = nn.Sequential(*list(resnet18(pretrained=True,
                                                      replace_stride_with_dilation=[False, True, True]).children())[:-2])
-        
         self.query_generator = Query_generator(img_backbone=self.backbone, num_query=self.num_query, dims=self.embed_dims)
-
-
-  
         self.detect_head = PedTRHead(args)
 
     def forward(self, img, cam_rays=None, proj_mat=None): 
@@ -34,7 +31,8 @@ class PedTR(nn.Module):
         img_features = self.backbone(img)  #  torch.Size([7, 512, 90, 160]) after resize 
        
         # up_sample feature map 
-        img_features = F.interpolate(img_features, self.upsample_shape, mode='bilinear')
+        if  self.feat_reduce != 1:
+            img_features = F.interpolate(img_features, self.upsample_shape, mode='bilinear')
 
         # generate query (either view & ray encoded or normal query) and learnable positional embedding 
         query, query_pos = self.query_generator(img=img, ray=cam_rays) # torch.Size([100, 512]) torch.Size([100, 512])        
@@ -45,10 +43,13 @@ class PedTR(nn.Module):
         return  out 
 
 
+
+
 def build_model(args): 
     device = torch.device(args.device)
     # build_model  
     model = PedTR(args).to(device)
+     
     weight_dict = {'loss_ce': args.ce_loss_coef, 'loss_bbox': args.bbox_loss_coef}
     losses = ['labels', 'boxes']
     # build matcher & criterion
