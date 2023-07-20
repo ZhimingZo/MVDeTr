@@ -1,7 +1,12 @@
 import torch 
 import torch.nn as nn 
 from multiview_detector.models.pedtr.utils.pedtr_transformer import PedTRTransformer
+import numpy as np
 
+def bias_init_with_prob(prior_prob: float) -> float:
+    """initialize conv/fc bias value according to a given probability value."""
+    bias_init = float(-np.log((1 - prior_prob) / prior_prob))
+    return bias_init
 
 
 def inverse_sigmoid(x, eps=1e-5):
@@ -54,11 +59,18 @@ class PedTRHead(nn.Module):
 
         self.reset_parameters()
     def reset_parameters(self):
-        for module in self.modules():
+        for module in self.reg_branches:
             if isinstance(module, nn.Linear):
                 nn.init.xavier_uniform_(module.weight)
                 if module.bias is not None:
                     nn.init.zeros_(module.bias)
+
+        for module in self.cls_branches:
+            bias_init = bias_init_with_prob(0.01)
+            if isinstance(module, nn.Linear):
+                nn.init.xavier_uniform_(module.weight)
+                if module.bias is not None:
+                    nn.init.constant_(self.referece_points_init.bias, bias_init)
         
     def forward(self, img_features, proj_mats, query, query_pos):         
         

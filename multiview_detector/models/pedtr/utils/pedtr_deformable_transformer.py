@@ -222,7 +222,7 @@ class PedTRDeformTransformerDecoderLayer(nn.Module):
         reference_points_deform = (inverse_sigmoid(reference_points).unsqueeze(1).repeat(1, 4, 1)) + offset #(400, 2)
         reference_points_deform = reference_points_deform.sigmoid() 
         attn_mask = self.deformable_features_fusion_attention_mask(query) # num_query x 4
-        attn_mask = F.softmax(attn_mask, dim=-1)
+        attn_mask = attn_mask.sigmoid()#F.softmax(attn_mask, dim=-1)
         '''
         print("query:", query.shape) #torch.Size([100, 512])
         print("offset: ", offset.shape) # torch.Size([400, 2])

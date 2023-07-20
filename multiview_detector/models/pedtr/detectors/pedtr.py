@@ -20,22 +20,26 @@ class PedTR(nn.Module):
 
         self.backbone = nn.Sequential(*list(resnet18(pretrained=True,
                                                      replace_stride_with_dilation=[False, True, True]).children())[:-2])
-        self.query_generator = Query_generator(img_backbone=self.backbone, num_query=self.num_query, dims=self.embed_dims)
+        
+        #self.reduced_features = nn.Sequential(nn.Conv2d(self.embed_dims, self.embed_dims, kernel_size=1), nn.Dropout2d(args.dropout))
+
+        self.query_generator = Query_generator(args=args, num_query=self.num_query, dims=self.embed_dims)
+        #self.query_generator = Query_generator(img_backbone=self.backbone, num_query=self.num_query, dims=self.embed_dims)
         self.detect_head = PedTRHead(args)
 
-    def forward(self, img, cam_rays=None, proj_mat=None): 
+    def forward(self, org_img, cam_rays=None, proj_mat=None): 
         # extract image features 
-        assert len(img.shape) == 5
-        B, N, C, H, W = img.shape
-        img = img.reshape(B*N, C, H, W) #7, 3, 1080, 1920 
+        assert len(org_img.shape) == 5
+        B, N, C, H, W = org_img.shape
+        img = org_img.reshape(B*N, C, H, W) #7, 3, 1080, 1920 
         img_features = self.backbone(img)  #  torch.Size([7, 512, 90, 160]) after resize 
-       
+        #img_features = self.reduced_features(img_features)
         # up_sample feature map 
         if  self.feat_reduce != 1:
             img_features = F.interpolate(img_features, self.upsample_shape, mode='bilinear')
 
         # generate query (either view & ray encoded or normal query) and learnable positional embedding 
-        query, query_pos = self.query_generator(img=img, ray=cam_rays) # torch.Size([100, 512]) torch.Size([100, 512])        
+        query, query_pos = self.query_generator(img_feat=img_features, ray=cam_rays) # torch.Size([100, 512]) torch.Size([100, 512])        
         # output the final output from detect head 
         # out:[{output_class, output_coords} X number of decoder_layers] 
         out = self.detect_head(img_features=img_features, proj_mats=proj_mat, query=query, query_pos=query_pos)

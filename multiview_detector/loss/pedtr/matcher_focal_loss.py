@@ -13,6 +13,33 @@ Modules to compute the matching cost and solve the corresponding LSAP.
 import torch
 from scipy.optimize import linear_sum_assignment
 from torch import nn
+import torch.nn.functional as F
+
+
+def sigmoid_focal_loss(inputs, targets, alpha: float = 0.25, gamma: float = 2):
+    """
+    Loss used in RetinaNet for dense detection: https://arxiv.org/abs/1708.02002.
+    Args:
+        inputs: A float tensor of arbitrary shape.
+                The predictions for each example.
+        targets: A float tensor with the same shape as inputs. Stores the binary
+                 classification label for each element in inputs
+                (0 for the negative class and 1 for the positive class).
+        alpha: (optional) Weighting factor in range (0,1) to balance
+                positive vs negative examples. Default = -1 (no weighting).
+        gamma: Exponent of the modulating factor (1 - p_t) to
+               balance easy vs hard examples.
+    Returns:
+        Loss tensor
+    """
+    p = torch.sigmoid(inputs)
+    ce_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction="none")
+    p_t = p * targets + (1 - p) * (1 - targets)
+    loss = ce_loss * ((1 - p_t) ** gamma)
+    if alpha >= 0:
+        alpha_t = alpha * targets + (1 - alpha) * (1 - targets)
+        loss = alpha_t * loss
+    return loss.mean(1).sum()  
 
 
 
@@ -27,19 +54,17 @@ class HungarianMatcher(nn.Module):
     def __init__(self,
                  cost_class: float = 1,
                  cost_bbox: float = 1):
-                 #cost_giou: float = 1):
+                  
         """Creates the matcher
-
         Params:
             cost_class: This is the relative weight of the classification error in the matching cost
             cost_bbox: This is the relative weight of the L1 error of the bounding box coordinates in the matching cost
-            cost_giou: This is the relative weight of the giou loss of the bounding box in the matching cost
         """
         super().__init__()
         self.cost_class = cost_class
         self.cost_bbox = cost_bbox
-        #self.cost_giou = cost_giou
-        assert cost_class != 0 or cost_bbox != 0, "all costs cant be 0" #or cost_giou != 0, "all costs cant be 0"
+         
+        assert cost_class != 0 or cost_bbox != 0, "all costs cant be 0"  
 
     def forward(self, outputs, targets):
         """ Performs the matching
@@ -78,7 +103,7 @@ class HungarianMatcher(nn.Module):
             neg_cost_class = (1 - alpha) * (out_prob ** gamma) * (-(1 - out_prob + 1e-8).log())
             pos_cost_class = alpha * ((1 - out_prob) ** gamma) * (-(out_prob + 1e-8).log())
             cost_class = pos_cost_class[:, tgt_ids] - neg_cost_class[:, tgt_ids]
-
+            
             # Compute the L1 cost between boxes
             cost_bbox = torch.cdist(out_bbox, tgt_bbox, p=1)
 
@@ -97,5 +122,5 @@ class HungarianMatcher(nn.Module):
 
 def build_matcher_focal(args):
     return HungarianMatcher(cost_class=args.set_cost_class,
-                            cost_bbox=args.set_cost_bbox)#,
-                            #cost_giou=args.set_cost_giou)
+                            cost_bbox=args.set_cost_bbox)
+                             

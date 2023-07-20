@@ -61,33 +61,7 @@ class SetCriterion_ce(nn.Module):
             # TODO this should probably be a separate loss, not hacked in this one here
             losses['class_error'] = 100 - accuracy(src_logits[idx], target_classes_o)[0]
         return losses
-    
-    def loss_focal_cost(self, cls_pred, targets, indices, num_boxes, log=True):
-        """
-        Args:
-            cls_pred (Tensor): Predicted classification logits, shape
-                (num_query, num_class).
-            gt_labels (Tensor): Label of `gt_bboxes`, shape (num_gt,).
-
-        Returns:
-            torch.Tensor: cls_cost value with weight
-        """
-
-        tgt_ids = torch.cat([v["labels"] for v in targets])
-        #print(tgt_ids.shape, tgt_ids)
-        cls_pred = cls_pred['pred_logits'].sigmoid()
-        #print(cls_pred.shape, cls_pred)
-        neg_cost = -(1 - cls_pred + self.eps).log() * (
-            1 - self.alpha) * cls_pred.pow(self.gamma)
-        pos_cost = -(cls_pred + self.eps).log() * self.alpha * (
-            1 - cls_pred).pow(self.gamma)
-
-        cls_cost = pos_cost[:, tgt_ids] - neg_cost[:, tgt_ids]
-    
-        losses = {'loss_ce': cls_cost.mean()}
-        return losses
-
-    
+        
     def loss_focal_binary_cost(self, cls_pred, gt_labels, indices, num_boxes, log=True):
         """ binary focal loss
         Args:
