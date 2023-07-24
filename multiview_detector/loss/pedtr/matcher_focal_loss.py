@@ -98,8 +98,8 @@ class HungarianMatcher(nn.Module):
             tgt_bbox = torch.cat([v["boxes"] for v in targets])
 
             # Compute the classification cost.
-            alpha = 0.25
-            gamma = 2.0
+            alpha = 0.25 # 0.25
+            gamma = 2.0 # 2.0
             neg_cost_class = (1 - alpha) * (out_prob ** gamma) * (-(1 - out_prob + 1e-8).log())
             pos_cost_class = alpha * ((1 - out_prob) ** gamma) * (-(out_prob + 1e-8).log())
             cost_class = pos_cost_class[:, tgt_ids] - neg_cost_class[:, tgt_ids]

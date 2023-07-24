@@ -1,10 +1,7 @@
 import os
-
-os.environ['OMP_NUM_THREADS'] = '1'
 import argparse
 import sys
 import shutil
-from distutils.dir_util import copy_tree
 import datetime
 import tqdm
 import random
@@ -20,17 +17,13 @@ from multiview_detector.utils.draw_curve import draw_curve
 from multiview_detector.utils.str2bool import str2bool
 #from multiview_detector.trainer_pedtr_focal import PedTRTrainer
 from multiview_detector.trainer_pedtr import PedTRTrainer
-from torchvision import transforms as T
 import warnings 
 import multiview_detector.utils.misc as utils
 import torch.distributed as dist
 from torch.utils.tensorboard import SummaryWriter
-
 warnings.filterwarnings("ignore")
  
 def main(args):
-
-
     utils.init_distributed_mode(args)
     print("git:\n  {}\n".format(utils.get_sha()))
 
@@ -56,12 +49,13 @@ def main(args):
     logdir=None
     if args.resume is None:
         if not args.distributed or dist.get_rank()==0:
-            log_file = 'logs_ddp_' + args.loss + '_loss_v2' if args.distributed else 'logs_' + args.loss + '_loss'
+            log_file = 'logs_ddp_' + args.loss + '_loss_v2_debug' if args.distributed else 'logs_' + args.loss + '_loss_debug'
             logdir = f'{log_file}/{args.dataset}/' \
-                    f'lr{args.lr}_baseR{args.base_lr_ratio}_' \
-                    f'drop{args.dropout}_dropcam{args.dropcam}_' \
-                    f'worldR{args.world_grid_reduce}_imgR{args.feat_reduce}_' \
-                    f'{datetime.datetime.today():%Y-%m-%d_%H-%M-%S}'
+                f'lr{args.lr}_baseR{args.base_lr_ratio}_' \
+                f'drop{args.dropout}_dropcam{args.dropcam}_' \
+                f'worldR{args.world_grid_reduce}_imgR{args.feat_reduce}_' \
+                f'{datetime.datetime.today():%Y-%m-%d_%H-%M-%S}'
+        
             os.makedirs(logdir, exist_ok=True)
             source = './multiview_detector'
             destination = logdir + '/scripts/multiview_detector'
@@ -81,15 +75,14 @@ def main(args):
                         src_file = os.path.join(root, file)
                         dst_file = os.path.join(dest_dir, file)
                         shutil.copyfile(src_file, dst_file)
-            sys.stdout = Logger(os.path.join(logdir, 'log.txt'), )
+            sys.stdout = Logger(os.path.join(logdir, 'log.txt'), ) 
     else:
-        logdir = f'logs_ddp_ce_loss_v2/{args.dataset}/{args.resume}' if args.loss =='ce' else f'logs_ddp_focal_loss_v2/{args.dataset}/{args.resume}'
+        logdir = f'logs_ddp_ce_loss_v2_debug/{args.dataset}/{args.resume}' if args.loss =='ce' else f'logs_ddp_focal_loss_v2_debug/{args.dataset}/{args.resume}'
 
     print(logdir)
     print('Settings:')
     #print(vars(args))
-    
-
+    print(args)
     writer = None
     # loss writer 
     if not args.distributed or dist.get_rank()==0:
@@ -98,7 +91,7 @@ def main(args):
     # dataset
     dataset_train = build_dataset(isTrain=True, args=args)
     dataset_test = build_dataset(isTrain=False, args=args)
-    print(args)
+    
     # model
     model, criterion = build_model(args)
     #print(model)
@@ -145,10 +138,10 @@ def main(args):
     if args.resume is None:
             train_loss = trainer.train()
     else:
-        model_without_ddp.load_state_dict(torch.load(f'{logdir}/MultiviewDetector_490.pth')['model_state_dict'])
+        model_without_ddp.load_state_dict(torch.load(f'{logdir}/MultiviewDetector_25.pth')['model_state_dict'])
         #model_without_ddp.load_state_dict(torch.load(f'{logdir}/MultiviewDetector_best.pth'))
         model_without_ddp.eval()
-        res_fpath = os.path.join(logdir, 'best_model_test.txt')
+        res_fpath = os.path.join(logdir, 'train_10.txt')
         print('Test loaded model...')
         trainer.test(res_fpath, visualize=False)
     # clean up 
@@ -160,11 +153,11 @@ if __name__ == '__main__':
     
     parser.add_argument('--id_ratio', type=float, default=0)
     parser.add_argument('--dropcam', type=float, default=0) # org 0 
-    parser.add_argument('--epochs', type=int, default=301, help='number of epochs to train')
-    parser.add_argument('--lr', type=float, default=2e-4, help='learning rate') # 2e-4
+    parser.add_argument('--epochs', type=int, default=201, help='number of epochs to train') # 25 , 120
+    parser.add_argument('--lr', type=float, default=4e-4, help='learning rate') # 2e-4
     parser.add_argument('--base_lr_ratio', type=float, default=0.1)
-    parser.add_argument('--lr_drop', default=5, type=int)
-    parser.add_argument('--lr_gamma', default=0.9, type=int)
+    parser.add_argument('--lr_drop', default=100, type=int) #10 , 30  
+    parser.add_argument('--lr_gamma', default=0.5, type=int)
     parser.add_argument('--weight_decay', type=float, default=1e-4)
     parser.add_argument('--resume', type=str, default=None)
     parser.add_argument('--visualize', action='store_true')
@@ -189,12 +182,12 @@ if __name__ == '__main__':
     parser.add_argument('--org_img_shape', default=[1080, 1920], type=int) 
     parser.add_argument('--img_resize', default=[1080, 1920], type=int) 
     parser.add_argument('--world_grid_shape', default=[480, 1440], type=int) 
-    parser.add_argument('--use_rays', action='store_true', default=True, help='encode camera rays')
+    parser.add_argument('--use_rays', action='store_true', default=False, help='encode camera rays')
 
     # Model 
     parser.add_argument('--dropout', type=float, default=0.1)
     parser.add_argument('--embed_dims', type=int, default=512)
-    parser.add_argument('--num_decoder_layer', type=int, default=6)
+    parser.add_argument('--num_decoder_layer', type=int, default=6) # 6
     parser.add_argument('--num_queries', default=400, type=int,
                         help="Number of query slots")# 400
     parser.add_argument('--num_heads', default=8, type=int,
@@ -202,20 +195,22 @@ if __name__ == '__main__':
     parser.add_argument('--deform', action='store_true', default=False, help='deformable attn')
 
     # Matcher 
-    parser.add_argument('--set_cost_class', default=1, type=float,
+    parser.add_argument('--set_cost_class', default=2, type=float,
                         help="Class coefficient in the matching cost") #1 for ce 
     parser.add_argument('--set_cost_bbox', default=5, type=float,
                         help="L1 box coefficient in the matching cost") #8  for ce
-    
-    # Loss coefficients       
+    parser.add_argument('--set_cost_giou', default=0, type=float,
+                        help="giou box coefficient in the matching cost")
+    # Loss coefficients  
+    parser.add_argument('--giou_loss_coef', default=0, type=float) #8  for ce     
     parser.add_argument('--bbox_loss_coef', default=5, type=float) #8  for ce  
-    parser.add_argument('--ce_loss_coef', default=1, type=float) #1  for ce
-    parser.add_argument('--eos_coef', default=0.1, type=float, 
+    parser.add_argument('--ce_loss_coef', default=2, type=float) #1  for ce
+    parser.add_argument('--eos_coef', default=0.01, type=float, 
                         help="Relative classification weight of the no-object class") # org_0.1
     
-    parser.add_argument('--loss', default='ce', type=str, choices=['focal', 'ce'],
+    parser.add_argument('--loss', default='focal', type=str, choices=['focal', 'ce'],
                         help="loss function for query classification") #  
-    
+ 
 
     # distributed training parameters
     parser.add_argument('--world_size', default=1, type=int,

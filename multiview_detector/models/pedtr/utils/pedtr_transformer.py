@@ -41,9 +41,8 @@ class PedTRTransformer(nn.Module):
         self.referece_points_init  = nn.Linear(self.embed_dims, 2)
     
         nn.init.xavier_uniform_(self.referece_points_init.weight)
-        #nn.init.zeros_(self.referece_points_init.bias)
-        bias_init = bias_init_with_prob(0.01)
-        nn.init.constant_(self.referece_points_init.bias, bias_init)
+        nn.init.zeros_(self.referece_points_init.bias)
+     
 
     def forward(self, img_features, proj_mat, query, query_pos, reg_branches): 
 
@@ -151,7 +150,7 @@ class PedTRTransformerDecoderLayer(nn.Module):
         self.grid_shape = args.world_grid_shape
  
         # MultiHeadAttn 
-        self.multiheadattn_query = nn.MultiheadAttention(self.embed_dims, num_heads=self.num_heads)
+        self.multiheadattn_query = nn.MultiheadAttention(self.embed_dims, num_heads=self.num_heads, dropout=self.dropout_ratio)
 
         # image feature sampling 
         self.img_feature_transformer = ImgFeatureTransformer(dim=self.embed_dims, depth=img_transformer_layer_num, heads=self.num_heads, mlp_dim=self.embed_dims, dropout=self.dropout_ratio)

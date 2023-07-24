@@ -31,7 +31,7 @@ def sigmoid_focal_loss(inputs, targets, num_boxes, alpha: float = 0.25, gamma: f
         alpha_t = alpha * targets + (1 - alpha) * (1 - targets)
         loss = alpha_t * loss
 
-    return loss.mean(1).sum() / num_boxes
+    return loss.mean(1).sum() / num_boxes 
 
 
  
@@ -77,7 +77,7 @@ class SetCriterion_focal(nn.Module):
         target_classes_onehot = target_classes_onehot[:,:,:-1]
         
 
-        loss_ce = sigmoid_focal_loss(src_logits, target_classes_onehot, num_boxes, alpha=self.focal_alpha, gamma=2) 
+        loss_ce = sigmoid_focal_loss(src_logits, target_classes_onehot, num_boxes, alpha=self.focal_alpha, gamma=2) * src_logits.shape[1]   # gamma 2
         losses = {'loss_ce': loss_ce}
         return losses
 

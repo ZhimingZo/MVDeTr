@@ -36,7 +36,8 @@ class PedTRHead(nn.Module):
         self.out_dims_class =  3 if args.loss == 'ce' else 2
         self.num_decoder_layer=args.num_decoder_layer # 6 
         self.transformer = PedTRTransformer(args) 
-         
+        
+        
         self.coord_regressor = nn.Sequential(
             nn.Linear(self.embed_dims, self.embed_dims), 
             nn.ReLU(), 
@@ -44,15 +45,18 @@ class PedTRHead(nn.Module):
             nn.ReLU(), 
             nn.Linear(self.embed_dims, self.out_dims_coord),
         )
+        '''
         self.cls_regressor = nn.Sequential(
             nn.Linear(self.embed_dims, self.embed_dims),
-            nn.LayerNorm(self.embed_dims),
+            #nn.LayerNorm(self.embed_dims),
             nn.ReLU(),
             nn.Linear(self.embed_dims, self.embed_dims),
-            nn.LayerNorm(self.embed_dims),
+            #nn.LayerNorm(self.embed_dims),
             nn.ReLU(),
             nn.Linear(self.embed_dims, self.out_dims_class),
         )
+        '''
+        self.cls_regressor = nn.Linear(self.embed_dims, self.out_dims_class)
 
         self.reg_branches = nn.ModuleList([self.coord_regressor for i in range(self.num_decoder_layer)]) 
         self.cls_branches = nn.ModuleList([self.cls_regressor  for i in range(self.num_decoder_layer)]) 
@@ -60,17 +64,18 @@ class PedTRHead(nn.Module):
         self.reset_parameters()
     def reset_parameters(self):
         for module in self.reg_branches:
-            if isinstance(module, nn.Linear):
-                nn.init.xavier_uniform_(module.weight)
-                if module.bias is not None:
-                    nn.init.zeros_(module.bias)
+            for sub_module in module: 
+                if isinstance(sub_module, nn.Linear):
+                    nn.init.xavier_uniform_(sub_module.weight)
+                    if sub_module.bias is not None:
+                        nn.init.zeros_(sub_module.bias)
 
         for module in self.cls_branches:
             bias_init = bias_init_with_prob(0.01)
             if isinstance(module, nn.Linear):
                 nn.init.xavier_uniform_(module.weight)
                 if module.bias is not None:
-                    nn.init.constant_(self.referece_points_init.bias, bias_init)
+                    nn.init.constant_(module.bias, bias_init)
         
     def forward(self, img_features, proj_mats, query, query_pos):         
         
