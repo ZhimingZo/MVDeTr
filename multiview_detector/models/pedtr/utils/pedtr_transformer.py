@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn 
 import torch.nn.functional as F
 import numpy as np
-from multiview_detector.models.pedtr.utils.pedtr_deformable_transformer_copy import PedTRDeformTransformerDecoderLayer
+from multiview_detector.models.pedtr.utils.pedtr_deformable_transformer_v2 import PedTRDeformTransformerDecoderLayer
 
 
 def bias_init_with_prob(prior_prob: float) -> float:
@@ -39,14 +39,13 @@ class PedTRTransformer(nn.Module):
         self.embed_dims = args.embed_dims
         self.decoder = PedTRTransformerDecoder(args)
         self.referece_points_init  = nn.Linear(self.embed_dims, 2)
-    
         nn.init.xavier_uniform_(self.referece_points_init.weight)
         nn.init.zeros_(self.referece_points_init.bias)
      
 
     def forward(self, img_features, proj_mat, query, query_pos, reg_branches): 
 
-        reference_points_init = self.referece_points_init(query).sigmoid()
+        reference_points_init = self.referece_points_init(query).sigmoid() # org: query
 
         # visulizaton here 
         '''

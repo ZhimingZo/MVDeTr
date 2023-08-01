@@ -49,7 +49,7 @@ def main(args):
     logdir=None
     if args.resume is None:
         if not args.distributed or dist.get_rank()==0:
-            log_file = 'logs_ddp_' + args.loss + '_loss_v2_debug' if args.distributed else 'logs_' + args.loss + '_loss_debug'
+            log_file = 'logs_ddp_' + args.loss + '_loss_v2_debug_wo_deform' if args.distributed else 'logs_' + args.loss + '_loss_debug_wo_deform'
             logdir = f'{log_file}/{args.dataset}/' \
                 f'lr{args.lr}_baseR{args.base_lr_ratio}_' \
                 f'drop{args.dropout}_dropcam{args.dropcam}_' \
@@ -77,7 +77,7 @@ def main(args):
                         shutil.copyfile(src_file, dst_file)
             sys.stdout = Logger(os.path.join(logdir, 'log.txt'), ) 
     else:
-        logdir = f'logs_ddp_ce_loss_v2_debug/{args.dataset}/{args.resume}' if args.loss =='ce' else f'logs_ddp_focal_loss_v2_debug/{args.dataset}/{args.resume}'
+        logdir = f'logs_ddp_ce_loss_v2_debug_wo_deform/{args.dataset}/{args.resume}' if args.loss =='ce' else f'logs_ddp_focal_loss_v2_debug_wo_deform/{args.dataset}/{args.resume}'
 
     print(logdir)
     print('Settings:')
@@ -108,8 +108,8 @@ def main(args):
                     "lr": args.lr * args.base_lr_ratio, }, ]
     
     optimizer = optim.AdamW(param_dicts, lr=args.lr, weight_decay=args.weight_decay)
-    #scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lr_drop, gamma=args.lr_gamma)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=30, eta_min=1e-5)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lr_drop, gamma=args.lr_gamma)
+    #scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=30, eta_min=1e-5)
 
     def seed_worker(worker_id):
         worker_seed = torch.initial_seed() % 2 ** 32
@@ -138,10 +138,11 @@ def main(args):
     if args.resume is None:
             train_loss = trainer.train()
     else:
-        model_without_ddp.load_state_dict(torch.load(f'{logdir}/MultiviewDetector_25.pth')['model_state_dict'])
+        model_without_ddp.load_state_dict(torch.load(f'{logdir}/MultiviewDetector_201.pth')['model_state_dict'])
         #model_without_ddp.load_state_dict(torch.load(f'{logdir}/MultiviewDetector_best.pth'))
         model_without_ddp.eval()
-        res_fpath = os.path.join(logdir, 'train_10.txt')
+        res_fpath = os.path.join(logdir, 'model.txt')
+        
         print('Test loaded model...')
         trainer.test(res_fpath, visualize=False)
     # clean up 
@@ -156,16 +157,16 @@ if __name__ == '__main__':
     parser.add_argument('--epochs', type=int, default=201, help='number of epochs to train') # 25 , 120
     parser.add_argument('--lr', type=float, default=4e-4, help='learning rate') # 2e-4
     parser.add_argument('--base_lr_ratio', type=float, default=0.1)
-    parser.add_argument('--lr_drop', default=100, type=int) #10 , 30  
+    parser.add_argument('--lr_drop', default=50, type=int) #10 , 30  
     parser.add_argument('--lr_gamma', default=0.5, type=int)
-    parser.add_argument('--weight_decay', type=float, default=1e-4)
+    parser.add_argument('--weight_decay', type=float, default=1e-4) # 1e-4
     parser.add_argument('--resume', type=str, default=None)
     parser.add_argument('--visualize', action='store_true')
     parser.add_argument('--seed', type=int, default=2024, help='random seed') # org 2021
     parser.add_argument('--deterministic', type=str2bool, default=False)
     parser.add_argument('--log_interval', type=int, default=100)
     parser.add_argument('--device', default='cuda',help='device to use for training / testing')
-    parser.add_argument('--clip_max_norm', default=5, type=float,
+    parser.add_argument('--clip_max_norm', default=1, type=float,
                         help='gradient clipping max norm')
 
     #Dataset 
@@ -189,13 +190,13 @@ if __name__ == '__main__':
     parser.add_argument('--embed_dims', type=int, default=512)
     parser.add_argument('--num_decoder_layer', type=int, default=6) # 6
     parser.add_argument('--num_queries', default=400, type=int,
-                        help="Number of query slots")# 400
+                        help="Number of query slots")# 400 # 200
     parser.add_argument('--num_heads', default=8, type=int,
                         help="Number of heads of MultiHeadAttn")
     parser.add_argument('--deform', action='store_true', default=False, help='deformable attn')
 
     # Matcher 
-    parser.add_argument('--set_cost_class', default=2, type=float,
+    parser.add_argument('--set_cost_class', default=1, type=float,
                         help="Class coefficient in the matching cost") #1 for ce 
     parser.add_argument('--set_cost_bbox', default=5, type=float,
                         help="L1 box coefficient in the matching cost") #8  for ce
@@ -204,8 +205,8 @@ if __name__ == '__main__':
     # Loss coefficients  
     parser.add_argument('--giou_loss_coef', default=0, type=float) #8  for ce     
     parser.add_argument('--bbox_loss_coef', default=5, type=float) #8  for ce  
-    parser.add_argument('--ce_loss_coef', default=2, type=float) #1  for ce
-    parser.add_argument('--eos_coef', default=0.01, type=float, 
+    parser.add_argument('--ce_loss_coef', default=1, type=float) #1  for ce 
+    parser.add_argument('--eos_coef', default=0.1, type=float, 
                         help="Relative classification weight of the no-object class") # org_0.1
     
     parser.add_argument('--loss', default='focal', type=str, choices=['focal', 'ce'],

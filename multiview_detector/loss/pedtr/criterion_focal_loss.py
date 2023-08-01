@@ -139,4 +139,4 @@ class SetCriterion_focal(nn.Module):
         losses = {}
         for loss in self.losses:
             losses.update(self.get_loss(loss, outputs, targets, indices, num_boxes))
-        return losses
+        return losses, indices

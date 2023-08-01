@@ -8,12 +8,24 @@ from torch import nn
 from torchvision.ops.boxes import box_area
 import torch.distributed as dist
 
-
+'''
 def box_cxcywh_to_xyxy(x):
     x_c, y_c, w, h = x.unbind(-1)
     b = [(x_c - 0.5 * w), (y_c - 0.5 * h),
          (x_c + 0.5 * w), (y_c + 0.5 * h)]
     return torch.stack(b, dim=-1)
+'''
+
+def box_cxcywh_to_xyxy(x):
+    x_c, y_c = x.unbind(-1)
+    w = torch.ones_like(x_c) * torch.tensor([8/1440]).to(x_c.device)
+    h =  torch.ones_like(y_c) * torch.tensor([8/480]).to(y_c.device)
+    b = [(x_c - 0.5 * w), (y_c - 0.5 * h),
+         (x_c + 0.5 * w), (y_c + 0.5 * h)]
+    return torch.stack(b, dim=-1)
+
+
+
 
 
 def box_xyxy_to_cxcywh(x):
@@ -102,7 +114,7 @@ class HungarianMatcher(nn.Module):
     while the others are un-matched (and thus treated as non-objects).
     """
 
-    def __init__(self, cost_class: float = 1, cost_bbox: float = 1):
+    def __init__(self, cost_class: float = 1, cost_bbox: float = 1, cost_giou: float = 1):
         """Creates the matcher
         Params:
             cost_class: This is the relative weight of the classification error in the matching cost
@@ -112,6 +124,7 @@ class HungarianMatcher(nn.Module):
         super().__init__()
         self.cost_class = cost_class
         self.cost_bbox = cost_bbox
+        self.cost_giou = cost_giou
         assert cost_class != 0 or cost_bbox != 0, "all costs cant be 0"
 
     @torch.no_grad()
@@ -163,7 +176,6 @@ class HungarianMatcher(nn.Module):
         # Compute the L1 cost between boxes
         cost_bbox = torch.cdist(out_bbox, tgt_bbox, p=1)
 
-
         '''
         print(out_bbox.shape, tgt_bbox.shape)
         if torch.isnan(out_bbox).any() or torch.isinf(out_bbox).any():
@@ -187,7 +199,7 @@ class HungarianMatcher(nn.Module):
         #cost_giou = -generalized_box_iou(box_cxcywh_to_xyxy(out_bbox), box_cxcywh_to_xyxy(tgt_bbox))
 
         # Final cost matrix
-        C = self.cost_bbox * cost_bbox + self.cost_class * cost_class # + self.cost_giou * cost_giou
+        C = self.cost_bbox * cost_bbox + self.cost_class * cost_class  #+ self.cost_giou * cost_giou
         #C = cost_bbox + cost_class
         #C = self.cost_class * cost_class
         #C = self.cost_bbox * cost_bbo
@@ -206,12 +218,12 @@ class HungarianMatcher(nn.Module):
         sizes = [len(v["boxes"]) for v in targets] # 1
         
         indices = [linear_sum_assignment(c[i]) for i, c in enumerate(C.split(sizes, -1))]
-        
+        #print(indices[0][0], indices[0][1])
         return [(torch.as_tensor(i, dtype=torch.int64), torch.as_tensor(j, dtype=torch.int64)) for i, j in indices]
 
 
 def build_matcher_ce(args):
     if args is None: 
         return HungarianMatcher()
-    return HungarianMatcher(cost_class=args.set_cost_class, cost_bbox=args.set_cost_bbox) #, cost_giou=args.set_cost_giou)
+    return HungarianMatcher(cost_class=args.set_cost_class, cost_bbox=args.set_cost_bbox, cost_giou=args.set_cost_giou)
     #return HungarianMatcher()

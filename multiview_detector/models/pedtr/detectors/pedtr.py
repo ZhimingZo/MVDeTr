@@ -60,7 +60,7 @@ def build_model(args):
     model = PedTR(args).to(device)
      
     weight_dict = {'loss_ce': args.ce_loss_coef, 'loss_bbox': args.bbox_loss_coef}
-    weight_dict['loss_giou'] = args.giou_loss_coef
+    #weight_dict['loss_giou'] = args.giou_loss_coef
     losses = ['labels', 'boxes']
     # build matcher & criterion
     if args.loss == 'ce':

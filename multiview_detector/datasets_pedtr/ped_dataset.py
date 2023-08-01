@@ -9,20 +9,17 @@ import xml.etree.ElementTree as ET
 from PIL import Image 
 import argparse
 from torch.utils.data import DataLoader 
-
-
+from multiview_detector.datasets_pedtr.ray import get_rays_new
 
 
 class PedestrianDataset(Dataset): 
-
     def __init__(self, args, root, transform, intrinsic_camera_matrix_filenames, 
                  extrinsic_camera_matrix_filenames, is_train): 
         super().__init__()
-       
+        self.args = args
         self.intrinsic_camera_matrix_filenames = intrinsic_camera_matrix_filenames
         self.extrinsic_camera_matrix_filenames = extrinsic_camera_matrix_filenames
-
-        self.reID, self.grid_reduce, self.img_reduce = args.reID, args.world_grid_reduce, args.img_reduce
+        self.reID, self.grid_reduce = args.reID, args.world_grid_reduce
         self.root, self.num_cam, self.num_frame = root, args.num_cams, args.num_frames
         self.train_ratio = args.train_ratio
         self.img_shape, self.world_grid_shape = args.org_img_shape, args.world_grid_shape  # H,W; N_row,N_col
@@ -45,13 +42,11 @@ class PedestrianDataset(Dataset):
         self.map_gt={}
         self.download(frame_range)
 
-
         # prepare for cams 
         self.worldgrid2worldcoord_mat = np.array([[2.5, 0, -300], [0, 2.5, -900], [0, 0, 1]])
         self.intrinsic_matrices, self.extrinsic_matrices = zip(
             *[self.get_intrinsic_extrinsic_matrix(cam) for cam in range(self.num_cam)])
       
-
 
     def get_image_fpaths(self, frame_range):
         img_fpaths = {cam: {} for cam in range(self.num_cam)}
@@ -108,7 +103,6 @@ class PedestrianDataset(Dataset):
                 
 
     def __getitem__(self, index):
-
         filename=[]
         frame = list(self.map_gt.keys())[index]
         imgs = []
@@ -125,20 +119,27 @@ class PedestrianDataset(Dataset):
         boxes[:, 0] = boxes[:, 0] / self.world_grid_shape[0]
         boxes[:, 1] = boxes[:, 1] / self.world_grid_shape[1]
         labels = torch.ones(boxes.shape[0], dtype=torch.long)
-        
+
         if self.reID:
             ID = self.ID[frame]
+         
         worldgrid2imgcoord_matrices = self.get_worldgrid2imagecoord_matrices(self.intrinsic_matrices,
                                                                              self.extrinsic_matrices,
                                                                              self.worldgrid2worldcoord_mat)
+        # create rays
+        K = torch.tensor(self.intrinsic_matrices).unsqueeze(0)
+        R = torch.tensor(self.extrinsic_matrices)[:, :3, :3].unsqueeze(0)
+        T = torch.tensor(self.extrinsic_matrices)[:, :3, 3:4].unsqueeze(0)
+        
+        #rays_d, rays_o = get_rays_new(self.args.img_resize, H=self.args.org_img_shape[0], W=self.args.org_img_shape[1], K=K, R=R, T=T)
+        #rays = torch.stack([rays_o, rays_d], dim=2)
+        rays = get_rays_new(self.args.img_resize, H=int(self.args.org_img_shape[0]*(1/8)), W=int(self.args.org_img_shape[1]*(1/8)), K=K, R=R, T=T).squeeze(0)
         worldgrid2imgcoord_matrices = torch.stack(worldgrid2imgcoord_matrices, dim=0)
-
         gt = {
             'boxes': boxes,
             'labels': labels,
         } 
-
-        return imgs, worldgrid2imgcoord_matrices, gt, frame 
+        return imgs, worldgrid2imgcoord_matrices, gt, rays, frame 
 
     def __len__(self):
         return len(self.map_gt.keys())
@@ -148,17 +149,45 @@ class PedestrianDataset(Dataset):
         grid_y = posID // self.world_grid_shape[0]
         return np.array([grid_x, grid_y], dtype=int)
     
+    
     def get_worldgrid2imagecoord_matrices(self, intrinsic_matrices, extrinsic_matrices, worldgrid2worldcoord_mat):
         #projection_matrices = {}
         projection_matrices = []
         for cam in range(self.num_cam):
             # step 1 # convert  world grid to world coordinates (# Given augument)
-            # step 2 # convert  world coordinates to image coordinates   
-            worldcoord2imgcoord_mat = intrinsic_matrices[cam] @ np.delete(extrinsic_matrices[cam], 2, 1)
+            # step 2 # convert  world coordinates to image coordinates 
+            #  
+            worldcoord2imgcoord_mat = intrinsic_matrices[cam] @ np.delete(extrinsic_matrices[cam], 2, 1)   
             worldgrid2imgcoord_mat = worldcoord2imgcoord_mat @ worldgrid2worldcoord_mat
             projection_matrices.append(torch.from_numpy(worldgrid2imgcoord_mat))
         return projection_matrices 
-    
+    '''
+    def get_worldgrid2imagecoord_matrices(self, intrinsic_matrices, extrinsic_matrices, worldgrid2worldcoord_mat):
+        #projection_matrices = {}
+        projection_matrices = []
+        projection_matrices_R = []
+        projection_matrices_T = []
+        projection_matrices_K = []
+        projection_matrices_grid_to_coord = []
+        for cam in range(self.num_cam):
+            # step 1 # convert  world grid to world coordinates (# Given augument)
+            # step 2 # convert  world coordinates to image coordinates 
+            #  
+            R = extrinsic_matrices[cam][:, :3] 
+            T = extrinsic_matrices[cam][:, 3]
+            K = intrinsic_matrices[cam]
+            
+            projection_matrices_R.append(torch.from_numpy(R))
+            projection_matrices_T.append(torch.from_numpy(T))
+            projection_matrices_K.append(torch.from_numpy(K))
+            projection_matrices_grid_to_coord.append(torch.from_numpy(worldgrid2worldcoord_mat))
+
+        projection_matrices.append(torch.stack(projection_matrices_R, dim=0).float())
+        projection_matrices.append(torch.stack(projection_matrices_T,dim=0).float())
+        projection_matrices.append(torch.stack(projection_matrices_K, dim=0).float())
+        projection_matrices.append(torch.stack(projection_matrices_grid_to_coord, dim=0).float())
+        return projection_matrices 
+    '''
     def get_intrinsic_extrinsic_matrix(self, camera_i):
         intrinsic_camera_path = os.path.join(self.root, 'calibrations', 'intrinsic_zero')
         intrinsic_params_file = cv2.FileStorage(os.path.join(intrinsic_camera_path,
